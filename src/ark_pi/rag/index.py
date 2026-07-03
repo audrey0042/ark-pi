@@ -2,8 +2,31 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from ark_pi.rag.backends import (
+    resolve_build_backend,
+    resolve_query_backend,
+    validate_backend_name,
+)
+
 REQUIRED_CHUNK_FIELDS = ("id", "title", "source", "chunk_index", "text", "sha256")
 MANIFEST_FILE = "manifest.json"
+CREATED_BY = "ark-pi"
+
+
+class IndexErrorBase(Exception):
+    """Base class for index and backend failures."""
+
+
+class IndexConfigurationError(IndexErrorBase):
+    """Invalid backend selection or index configuration."""
+
+
+class IndexDependencyError(IndexErrorBase):
+    """Optional index backend dependency is not installed."""
+
+
+class IndexFormatError(IndexErrorBase):
+    """Index directory or manifest is malformed."""
 
 
 @dataclass(frozen=True)
@@ -52,17 +75,17 @@ def load_chunks_jsonl(chunks_path: Path) -> list[ChunkDocument]:
             data = json.loads(stripped)
         except json.JSONDecodeError as exc:
             msg = f"Malformed JSON on line {line_number} of {chunks_path}: {exc.msg}"
-            raise ValueError(msg) from exc
+            raise IndexFormatError(msg) from exc
         if not isinstance(data, dict):
             msg = f"Expected JSON object on line {line_number} of {chunks_path}"
-            raise ValueError(msg)
+            raise IndexFormatError(msg)
         missing = [field for field in REQUIRED_CHUNK_FIELDS if field not in data]
         if missing:
             msg = (
                 f"Missing required chunk fields on line {line_number} of {chunks_path}: "
                 f"{', '.join(missing)}"
             )
-            raise ValueError(msg)
+            raise IndexFormatError(msg)
         documents.append(
             ChunkDocument(
                 id=str(data["id"]),
@@ -89,32 +112,88 @@ def _load_manifest(index_dir: Path) -> dict[str, object]:
         raise FileNotFoundError(msg)
     if not manifest_path.is_file():
         msg = f"Invalid index directory (missing {MANIFEST_FILE}): {index_dir}"
-        raise ValueError(msg)
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        raise IndexFormatError(msg)
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        msg = f"Invalid manifest in {manifest_path}: {exc.msg}"
+        raise IndexFormatError(msg) from exc
     if not isinstance(data, dict):
         msg = f"Invalid manifest in {manifest_path}"
-        raise ValueError(msg)
+        raise IndexFormatError(msg)
     return data
 
 
 def _backend_from_manifest(manifest: dict[str, object]) -> str:
     backend = manifest.get("backend")
-    if backend != "simple":
-        msg = f"Unsupported index backend: {backend!r}"
-        raise ValueError(msg)
-    return str(backend)
+    if not isinstance(backend, str):
+        msg = f"Invalid or missing backend in index manifest: {backend!r}"
+        raise IndexFormatError(msg)
+    return validate_backend_name(backend)
+
+
+def _dispatch_build(
+    backend: str,
+    documents: list[ChunkDocument],
+    index_dir: Path,
+    *,
+    source_chunks: str,
+    force: bool,
+) -> IndexStats:
+    match backend:
+        case "simple":
+            from ark_pi.rag import simple_index
+
+            return simple_index.build_index(
+                documents,
+                index_dir,
+                source_chunks=source_chunks,
+                force=force,
+            )
+        case "chroma":
+            from ark_pi.rag import chroma_index
+
+            return chroma_index.build_index(
+                documents,
+                index_dir,
+                source_chunks=source_chunks,
+                force=force,
+            )
+        case _:
+            msg = f"Unhandled index backend: {backend!r}"
+            raise IndexConfigurationError(msg)
+
+
+def _dispatch_search(backend: str, index_dir: Path, query: str, *, limit: int) -> list[SearchResult]:
+    match backend:
+        case "simple":
+            from ark_pi.rag import simple_index
+
+            return simple_index.search_index(index_dir, query, limit=limit)
+        case "chroma":
+            from ark_pi.rag import chroma_index
+
+            return chroma_index.search_index(index_dir, query, limit=limit)
+        case _:
+            msg = f"Unhandled index backend: {backend!r}"
+            raise IndexConfigurationError(msg)
 
 
 def build_index(
     chunks_path: Path,
     index_dir: Path,
     *,
+    backend: str | None = None,
+    config_backend: str = "simple",
     force: bool = False,
 ) -> IndexStats:
-    from ark_pi.rag import simple_index
-
+    resolved_backend = resolve_build_backend(
+        cli_backend=backend,
+        config_backend=config_backend,
+    )
     documents = load_chunks_jsonl(chunks_path)
-    return simple_index.build_index(
+    return _dispatch_build(
+        resolved_backend,
         documents,
         index_dir,
         source_chunks=str(chunks_path),
@@ -126,23 +205,31 @@ def search_index(
     index_dir: Path,
     query: str,
     *,
+    backend: str | None = None,
     limit: int = 5,
 ) -> list[SearchResult]:
-    from ark_pi.rag import simple_index
-
     validate_search_limit(limit)
     manifest = _load_manifest(index_dir)
-    _backend_from_manifest(manifest)
-    return simple_index.search_index(index_dir, query, limit=limit)
+    manifest_backend = _backend_from_manifest(manifest)
+    resolved_backend = resolve_query_backend(
+        cli_backend=backend,
+        manifest_backend=manifest_backend,
+    )
+    return _dispatch_search(resolved_backend, index_dir, query, limit=limit)
 
 
-def index_stats(index_dir: Path) -> IndexStats:
+def index_stats(index_dir: Path, *, backend: str | None = None) -> IndexStats:
     manifest = _load_manifest(index_dir)
-    backend = _backend_from_manifest(manifest)
+    manifest_backend = _backend_from_manifest(manifest)
+    resolved_backend = resolve_query_backend(
+        cli_backend=backend,
+        manifest_backend=manifest_backend,
+    )
+    source_chunks = manifest.get("source_chunks")
     return IndexStats(
-        backend=backend,
+        backend=resolved_backend,
         schema_version=int(manifest["schema_version"]),
         chunk_count=int(manifest["chunk_count"]),
         index_dir=index_dir,
-        source_chunks=str(manifest["source_chunks"]) if manifest.get("source_chunks") else None,
+        source_chunks=str(source_chunks) if source_chunks else None,
     )

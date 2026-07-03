@@ -24,6 +24,9 @@ dev = [
     "ruff",
     "mypy",
 ]
+chroma = [
+    "chromadb",
+]
 
 [project.scripts]
 ark = "ark_pi.cli:main"

@@ -142,5 +142,5 @@ def test_load_chunks_jsonl_rejects_malformed_record(tmp_path: Path) -> None:
     chunks_path = tmp_path / "bad.jsonl"
     chunks_path.write_text('{"id": "x", "title": "Missing fields"}\n', encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Missing required chunk fields"):
+    with pytest.raises(rag_index.IndexFormatError, match="Missing required chunk fields"):
         rag_index.load_chunks_jsonl(chunks_path)

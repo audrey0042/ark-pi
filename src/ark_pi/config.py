@@ -6,6 +6,7 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Role = Literal["rag", "llm", "dev"]
+IndexBackend = Literal["simple", "chroma"]
 LlmBackend = Literal["mock", "openai-compatible"]
 
 
@@ -23,6 +24,7 @@ class ArkSettings(BaseSettings):
     port: int = 8000
     data_dir: Path = Path("./data")
     index_dir: Path = Path("./indexes")
+    index_backend: IndexBackend = "simple"
     # TODO: derive chroma_dir from index_dir when ARK_INDEX_DIR is overridden
     chroma_dir: Path = Path("./indexes/chroma")
     collection_name: str = "wiki_minilm_l6_v2"

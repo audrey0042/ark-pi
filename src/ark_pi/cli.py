@@ -13,6 +13,7 @@ from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.rag import prompting
 from ark_pi.rag import index as rag_index
+from ark_pi.rag.index import IndexErrorBase
 
 app = typer.Typer(name="ark", help="Ark Pi — offline/local RAG appliance")
 ingest_app = typer.Typer(help="Document ingestion commands")
@@ -27,6 +28,16 @@ console = Console()
 class LlmBackendOption(str, Enum):
     mock = "mock"
     openai_compatible = "openai-compatible"
+
+
+class IndexBackendOption(str, Enum):
+    simple = "simple"
+    chroma = "chroma"
+
+
+def _handle_index_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
 
 
 @app.command()
@@ -121,20 +132,32 @@ def index_build(
         "--index-dir",
         help="Directory to write the local index",
     ),
+    backend: IndexBackendOption | None = typer.Option(
+        None,
+        "--backend",
+        help="Index backend (default: from config, usually simple)",
+    ),
     force: bool = typer.Option(False, "--force", help="Overwrite a non-empty index directory"),
 ) -> None:
     """Build a local searchable index from chunk JSONL."""
+    settings = ark_config.get_settings()
+    resolved_backend = backend.value if backend is not None else None
     try:
-        stats = rag_index.build_index(chunks_path, index_dir, force=force)
+        stats = rag_index.build_index(
+            chunks_path,
+            index_dir,
+            backend=resolved_backend,
+            config_backend=settings.index_backend,
+            force=force,
+        )
+    except IndexErrorBase as exc:
+        _handle_index_errors(exc)
     except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
     except FileNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
     except FileExistsError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
 
     table = Table(title="Index Build Summary")
     table.add_column("Metric", style="bold")
@@ -153,16 +176,22 @@ def index_stats_cmd(
         help="Path to a built index directory",
         exists=False,
     ),
+    backend: IndexBackendOption | None = typer.Option(
+        None,
+        "--backend",
+        help="Index backend (default: read from manifest)",
+    ),
 ) -> None:
     """Print index manifest details."""
+    resolved_backend = backend.value if backend is not None else None
     try:
-        stats = rag_index.index_stats(index_dir)
+        stats = rag_index.index_stats(index_dir, backend=resolved_backend)
+    except IndexErrorBase as exc:
+        _handle_index_errors(exc)
     except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
     except FileNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
 
     table = Table(title="Index Stats")
     table.add_column("Key", style="bold")
@@ -185,17 +214,28 @@ def index_search(
         exists=False,
     ),
     query: str = typer.Option(..., "--query", help="Search query"),
+    backend: IndexBackendOption | None = typer.Option(
+        None,
+        "--backend",
+        help="Index backend (default: read from manifest)",
+    ),
     limit: int = typer.Option(5, "--limit", min=1),
 ) -> None:
-    """Search a local index using lexical token overlap."""
+    """Search a local index using the configured backend."""
+    resolved_backend = backend.value if backend is not None else None
     try:
-        results = rag_index.search_index(index_dir, query, limit=limit)
+        results = rag_index.search_index(
+            index_dir,
+            query,
+            backend=resolved_backend,
+            limit=limit,
+        )
+    except IndexErrorBase as exc:
+        _handle_index_errors(exc)
     except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
     except FileNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
 
     if not results:
         console.print("No matches found.")
@@ -272,12 +312,12 @@ def ask(
 
     try:
         results = rag_index.search_index(index_dir, stripped_question, limit=limit)
+    except IndexErrorBase as exc:
+        _handle_index_errors(exc)
     except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
     except FileNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        _handle_index_errors(exc)
 
     if not results:
         console.print("No relevant context found.")

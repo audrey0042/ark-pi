@@ -32,31 +32,41 @@ Typed LLM client interface in `ark_pi.llm_client` with a deterministic mock back
 
 **Status: done**
 
-## 6. Chroma indexing
+## 6. Optional Chroma backend boundary
 
-Embed chunks and write to Chroma. Rebuild index from source on demand.
+Index backend selection (`simple` default, `chroma` optional) with lazy-loaded Chroma storage behind the existing index abstraction. Manifest records backend identity. No semantic embedding pipeline yet.
 
-## 7. Retrieval API
+**Status: done**
+
+## 7. Explicit embedding model pipeline
+
+Choose and wire an embedding model for semantic indexing. Evaluate retrieval quality offline.
+
+## 8. Real semantic retrieval and evaluation
+
+End-to-end semantic search, ranking evaluation, and tuning over Chroma-backed indexes.
+
+## 9. Retrieval API
 
 FastAPI endpoints for semantic search over the local index. Return ranked chunks with scores.
 
-## 8. llama.cpp server deployment
+## 10. llama.cpp server deployment
 
 Deploy llama.cpp on ark-llm Pi. ark-rag uses the existing OpenAI-compatible client over Ethernet. Real inference and model files — not required for laptop dev/tests.
 
-## 9. Minimal web UI
+## 11. Minimal web UI
 
 Simple dashboard on ark-rag: ask a question, show retrieved context and answer.
 
-## 10. WiFi AP and systemd deployment
+## 12. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 11. SimpleWiki ingest
+## 13. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 12. Backup / export / import strategy
+## 14. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 
