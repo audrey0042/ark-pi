@@ -18,6 +18,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 - Simple lexical index build and search (`ark index`)
 - RAG prompt assembly and `ark ask`
 - Local FastAPI RAG API (`ark serve`)
+- Minimal built-in web UI at `/`
 - Mock LLM backend for end-to-end wiring checks
 - Project config, CLI, tests, and docs
 
@@ -25,7 +26,6 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 
 - Semantic embeddings and real vector retrieval
 - Chroma storage on ark-rag in production
-- Web UI
 - WiFi access point setup
 - systemd deployment on both Pis
 - llama.cpp server deployment on ark-llm
@@ -41,7 +41,7 @@ Phone / laptop
       v
 ark-rag
   - WiFi access point
-  - web UI (future)
+  - web UI
   - RAG API (FastAPI)
   - document ingestion
   - chunking and indexing
@@ -116,6 +116,10 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 Use the index path from the RAG loop smoke test above, or build your own with `ark index build`.
 
+## Web UI smoke test
+
+With the server running (`ark serve --host 127.0.0.1 --port 8000`), open [http://127.0.0.1:8000/](http://127.0.0.1:8000/) in a browser. Enter `/tmp/ark_index` (from the RAG loop above) and ask a question. The page calls `POST /api/ask` on the same host — no external assets or build step required.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.
@@ -140,7 +144,7 @@ The repo is meant to be rebuildable from source. Indexes, chunks, logs, models, 
 
 ## Roadmap
 
-Next major areas: embedding model pipeline, semantic retrieval, a minimal web UI, llama.cpp on ark-llm, and production deployment on both Pis.
+Next major areas: embedding model pipeline, semantic retrieval, llama.cpp on ark-llm, and production deployment on both Pis.
 
 Full staged plan: [docs/roadmap.md](docs/roadmap.md)
 

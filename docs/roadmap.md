@@ -58,9 +58,9 @@ Deploy llama.cpp on ark-llm Pi. ark-rag uses the existing OpenAI-compatible clie
 
 ## 11. Minimal web UI
 
-Simple dashboard on ark-rag: ask a question, show retrieved context and answer. Calls the FastAPI RAG API on ark-rag.
+Built-in single-page HTML served at `GET /` and `GET /ui`. Calls local `POST /api/ask` from inline JavaScript — no npm, CDN, or build chain. Phone-friendly layout for future ark-rag use.
 
-**Status: not started**
+**Status: done**
 
 ## 12. WiFi AP and systemd deployment
 

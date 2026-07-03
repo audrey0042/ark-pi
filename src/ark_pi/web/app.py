@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from ark_pi import config as ark_config
 from ark_pi.rag import ask as rag_ask
@@ -16,6 +16,7 @@ from ark_pi.web.schemas import (
     SearchResponse,
     StatusResponse,
 )
+from ark_pi.web.ui import index_response
 
 SERVICE_NAME = "ark-pi"
 
@@ -92,5 +93,10 @@ def create_app() -> FastAPI:
             payload["prompt"] = result.prompt
 
         return JSONResponse(content=payload)
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/ui", include_in_schema=False)
+    def web_ui() -> HTMLResponse:
+        return index_response()
 
     return app

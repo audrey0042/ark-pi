@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ark Pi</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8f9fa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ccc;
+      --error-bg: #fff5f5;
+      --error-border: #c0392b;
+      --error-fg: #922b21;
+      --btn-bg: #2563eb;
+      --btn-fg: #fff;
+      --btn-disabled: #94a3b8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a2e;
+        --fg: #eee;
+        --muted: #aaa;
+        --border: #444;
+        --error-bg: #2d1f1f;
+        --error-border: #e74c3c;
+        --error-fg: #f5b7b1;
+        --btn-bg: #3b82f6;
+        --btn-disabled: #475569;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+      margin: 0;
+      padding: 1rem;
+    }
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    .intro { color: var(--muted); margin-bottom: 1.5rem; }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font: inherit;
+      background: var(--bg);
+      color: var(--fg);
+      margin-bottom: 1rem;
+    }
+    textarea { min-height: 5rem; resize: vertical; }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .checkbox-row label { margin: 0; font-weight: normal; }
+    button[type="submit"] {
+      background: var(--btn-bg);
+      color: var(--btn-fg);
+      border: none;
+      border-radius: 4px;
+      padding: 0.6rem 1.25rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    button[type="submit"]:disabled {
+      background: var(--btn-disabled);
+      cursor: not-allowed;
+    }
+    .output { margin-top: 1.5rem; }
+    .output section { margin-bottom: 1.25rem; }
+    .output h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+    .hidden { display: none; }
+    #error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #error-box strong { display: block; margin-bottom: 0.25rem; }
+    .chunk {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .chunk-meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+    }
+    @media (max-width: 600px) {
+      body { padding: 0.75rem; }
+      h1 { font-size: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Ark Pi</h1>
+    <p class="intro">
+      Local development UI. Ask questions against a built index on this machine.
+      Uses the mock LLM backend by default — no cloud or external services.
+    </p>
+
+    <form id="ask-form">
+      <label for="index-dir">Index directory</label>
+      <input type="text" id="index-dir" name="index_dir" value="/tmp/ark_index" required>
+
+      <label for="question">Question</label>
+      <textarea id="question" name="question" placeholder="Which Pi owns prompt assembly?" required></textarea>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="include-context" name="include_context">
+        <label for="include-context">Include retrieved context</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="include-prompt" name="include_prompt">
+        <label for="include-prompt">Include assembled prompt</label>
+      </div>
+
+      <button type="submit" id="ask-button">Ask</button>
+    </form>
+
+    <div class="output">
+      <section id="error-section" class="hidden" aria-live="polite">
+        <div id="error-box">
+          <strong>Error:</strong>
+          <span id="error-text"></span>
+        </div>
+      </section>
+
+      <section id="answer-section" class="hidden">
+        <h2>Answer</h2>
+        <p id="answer-text"></p>
+        <p id="retrieved-count" class="chunk-meta"></p>
+      </section>
+
+      <section id="context-section" class="hidden">
+        <h2>Retrieved context</h2>
+        <div id="context-list"></div>
+      </section>
+
+      <section id="prompt-section" class="hidden">
+        <h2>Assembled prompt</h2>
+        <pre id="prompt-text"></pre>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById("ask-form");
+      var askButton = document.getElementById("ask-button");
+      var errorSection = document.getElementById("error-section");
+      var errorText = document.getElementById("error-text");
+      var answerSection = document.getElementById("answer-section");
+      var answerText = document.getElementById("answer-text");
+      var retrievedCount = document.getElementById("retrieved-count");
+      var contextSection = document.getElementById("context-section");
+      var contextList = document.getElementById("context-list");
+      var promptSection = document.getElementById("prompt-section");
+      var promptText = document.getElementById("prompt-text");
+
+      function hideOutput() {
+        errorSection.classList.add("hidden");
+        answerSection.classList.add("hidden");
+        contextSection.classList.add("hidden");
+        promptSection.classList.add("hidden");
+        errorText.textContent = "";
+        answerText.textContent = "";
+        retrievedCount.textContent = "";
+        contextList.innerHTML = "";
+        promptText.textContent = "";
+      }
+
+      function showError(message) {
+        errorText.textContent = message;
+        errorSection.classList.remove("hidden");
+      }
+
+      function renderContext(chunks) {
+        contextList.innerHTML = "";
+        chunks.forEach(function (chunk) {
+          var div = document.createElement("div");
+          div.className = "chunk";
+          var meta = document.createElement("div");
+          meta.className = "chunk-meta";
+          meta.textContent = "#" + chunk.rank + " · " + chunk.title +
+            " · " + chunk.id + " · score " + chunk.score.toFixed(2);
+          var body = document.createElement("p");
+          body.textContent = chunk.text;
+          div.appendChild(meta);
+          div.appendChild(body);
+          contextList.appendChild(div);
+        });
+        contextSection.classList.remove("hidden");
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hideOutput();
+        askButton.disabled = true;
+        askButton.textContent = "Asking…";
+
+        var payload = {
+          index_dir: document.getElementById("index-dir").value.trim(),
+          question: document.getElementById("question").value.trim(),
+          include_context: document.getElementById("include-context").checked,
+          include_prompt: document.getElementById("include-prompt").checked
+        };
+
+        fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              return { ok: response.ok, status: response.status, data: data };
+            }).catch(function () {
+              return { ok: response.ok, status: response.status, data: null };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) {
+              var msg = "Request failed (" + result.status + ")";
+              if (result.data && result.data.detail) {
+                msg = result.data.detail;
+                if (result.data.error) {
+                  msg = result.data.error + ": " + result.data.detail;
+                }
+              }
+              showError(msg);
+              return;
+            }
+            var data = result.data;
+            answerText.textContent = data.answer || "";
+            retrievedCount.textContent = "Retrieved chunks: " + (data.retrieved_count || 0);
+            answerSection.classList.remove("hidden");
+            if (data.context && data.context.length > 0) {
+              renderContext(data.context);
+            }
+            if (data.prompt) {
+              promptText.textContent = data.prompt;
+              promptSection.classList.remove("hidden");
+            }
+          })
+          .catch(function (err) {
+            showError(err.message || "Network error");
+          })
+          .finally(function () {
+            askButton.disabled = false;
+            askButton.textContent = "Ask";
+          });
+      });
+    })();
+  </script>
+</body>
+</html>
