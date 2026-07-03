@@ -1,7 +1,9 @@
+import io
 import json
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from ark_pi.workspace.catalog import (
     CATALOG_SCHEMA_VERSION,
@@ -18,6 +20,7 @@ EXPORT_MANIFEST_FILENAME = "export_manifest.json"
 EXPORT_SCHEMA_VERSION = 1
 CREATED_BY = "ark-pi"
 EXPORT_TYPE = "workspace"
+ALL_INDEXES_DOWNLOAD_FILENAME = "ark-pi-workspace-export.zip"
 
 
 class WorkspaceExportError(WorkspaceError):
@@ -30,6 +33,19 @@ class ExportResult:
     index_count: int
     archive_size_bytes: int
     message: str
+
+
+@dataclass(frozen=True)
+class ExportArchiveInfo:
+    index_count: int
+    archive_size_bytes: int
+    exported_slugs: list[str]
+
+
+def export_download_filename(slug: str | None) -> str:
+    if slug is not None:
+        return f"ark-pi-index-{slug}.zip"
+    return ALL_INDEXES_DOWNLOAD_FILENAME
 
 
 def _resolve_output_path(output_path: Path) -> Path:
@@ -104,6 +120,58 @@ def _add_index_files(
         archive.write(resolved, arcname=str(arcname))
 
 
+def _write_export_archive(
+    archive: zipfile.ZipFile,
+    workspace_dir: Path,
+    entries: list[CatalogIndexEntry],
+) -> None:
+    catalog_json = json.dumps(_catalog_payload(entries), indent=2) + "\n"
+    manifest_json = json.dumps(_manifest_payload(entries), indent=2) + "\n"
+    archive.writestr("catalog.json", catalog_json)
+    archive.writestr(EXPORT_MANIFEST_FILENAME, manifest_json)
+    for entry in entries:
+        _add_index_files(archive, workspace_dir, entry.slug)
+
+
+def write_workspace_export_zip(
+    workspace_dir: Path,
+    fileobj: BinaryIO,
+    *,
+    slug: str | None = None,
+) -> ExportArchiveInfo:
+    """Write workspace catalog and index data to a zip archive file object."""
+    entries = _select_entries(workspace_dir, slug)
+    with zipfile.ZipFile(fileobj, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        _write_export_archive(archive, workspace_dir, entries)
+
+    if hasattr(fileobj, "tell"):
+        archive_size = fileobj.tell()
+    else:
+        archive_size = 0
+
+    return ExportArchiveInfo(
+        index_count=len(entries),
+        archive_size_bytes=archive_size,
+        exported_slugs=[entry.slug for entry in entries],
+    )
+
+
+def export_workspace_to_bytes(
+    workspace_dir: Path,
+    *,
+    slug: str | None = None,
+) -> tuple[bytes, ExportArchiveInfo]:
+    """Export workspace catalog and index data to an in-memory zip archive."""
+    buffer = io.BytesIO()
+    info = write_workspace_export_zip(workspace_dir, buffer, slug=slug)
+    data = buffer.getvalue()
+    return data, ExportArchiveInfo(
+        index_count=info.index_count,
+        archive_size_bytes=len(data),
+        exported_slugs=info.exported_slugs,
+    )
+
+
 def export_workspace(
     workspace_dir: Path,
     output_path: Path,
@@ -121,14 +189,8 @@ def export_workspace(
 
     resolved_output.parent.mkdir(parents=True, exist_ok=True)
 
-    catalog_json = json.dumps(_catalog_payload(entries), indent=2) + "\n"
-    manifest_json = json.dumps(_manifest_payload(entries), indent=2) + "\n"
-
     with zipfile.ZipFile(resolved_output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("catalog.json", catalog_json)
-        archive.writestr(EXPORT_MANIFEST_FILENAME, manifest_json)
-        for entry in entries:
-            _add_index_files(archive, workspace_dir, entry.slug)
+        _write_export_archive(archive, workspace_dir, entries)
 
     archive_size = resolved_output.stat().st_size
     if slug is not None:

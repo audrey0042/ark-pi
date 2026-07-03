@@ -42,6 +42,10 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "Export workspace" in html
     assert 'id="export-form"' in html
     assert "/api/workspace/export" in html
+    assert "Download export" in html
+    assert 'id="export-download-button"' in html
+    assert "/api/workspace/export/download" in html
+    assert "Export to path" in html
     assert "Import workspace" in html
     assert 'id="import-workspace-form"' in html
     assert "/api/workspace/import" in html

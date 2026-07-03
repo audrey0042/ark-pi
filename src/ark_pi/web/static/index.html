@@ -414,10 +414,10 @@
     <section class="panel" aria-labelledby="export-heading">
       <h2 id="export-heading">Export workspace</h2>
       <p class="hint">
-        Write a zip archive on this machine containing the workspace catalog and index data.
+        Download a zip archive in your browser, or write one to a path on this machine.
       </p>
       <form id="export-form">
-        <label for="export-output-path">Output path</label>
+        <label for="export-output-path">Server-side output path</label>
         <input type="text" id="export-output-path" name="output_path" value="/tmp/ark-workspace-export.zip" required>
 
         <div class="checkbox-row">
@@ -430,7 +430,8 @@
           <label for="export-force">Force overwrite (replace existing archive)</label>
         </div>
 
-        <button type="submit" id="export-button">Export</button>
+        <button type="submit" id="export-button">Export to path</button>
+        <button type="button" id="export-download-button">Download export</button>
       </form>
 
       <div class="output">
@@ -956,10 +957,19 @@
 
       var exportForm = document.getElementById("export-form");
       var exportButton = document.getElementById("export-button");
+      var exportDownloadButton = document.getElementById("export-download-button");
       var exportErrorSection = document.getElementById("export-error-section");
       var exportErrorText = document.getElementById("export-error-text");
       var exportSuccessSection = document.getElementById("export-success-section");
       var exportSuccessText = document.getElementById("export-success-text");
+
+      function parseContentDispositionFilename(header) {
+        if (!header) {
+          return null;
+        }
+        var match = /filename="([^"]+)"/.exec(header);
+        return match ? match[1] : null;
+      }
 
       function hideExportOutput() {
         exportErrorSection.classList.add("hidden");
@@ -984,7 +994,7 @@
             exportErrorText.textContent = "Select an index first, or uncheck export selected index only.";
             exportErrorSection.classList.remove("hidden");
             exportButton.disabled = false;
-            exportButton.textContent = "Export";
+            exportButton.textContent = "Export to path";
             return;
           }
           payload.slug = selectedSlug;
@@ -1009,8 +1019,69 @@
           })
           .finally(function () {
             exportButton.disabled = false;
-            exportButton.textContent = "Export";
+            exportButton.textContent = "Export to path";
           });
+      });
+
+      exportDownloadButton.addEventListener("click", function () {
+        hideExportOutput();
+        var payload = {};
+        if (document.getElementById("export-selected-only").checked) {
+          var selectedSlug = indexSelect.value;
+          if (!selectedSlug) {
+            exportErrorText.textContent = "Select an index first, or uncheck export selected index only.";
+            exportErrorSection.classList.remove("hidden");
+            return;
+          }
+          payload.slug = selectedSlug;
+        }
+
+        exportDownloadButton.disabled = true;
+        exportDownloadButton.textContent = "Downloading…";
+
+        fetch("/api/workspace/export/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).then(function (response) {
+          if (!response.ok) {
+            return response.json().then(function (data) {
+              var msg = "Request failed (" + response.status + ")";
+              if (data && data.detail) {
+                msg = data.error ? data.error + ": " + data.detail : data.detail;
+              }
+              throw new Error(msg);
+            }).catch(function (err) {
+              if (err instanceof Error && err.message.indexOf("Request failed") !== 0) {
+                throw err;
+              }
+              throw new Error("Request failed (" + response.status + ")");
+            });
+          }
+          var filename = parseContentDispositionFilename(
+            response.headers.get("Content-Disposition")
+          ) || "ark-pi-workspace-export.zip";
+          return response.blob().then(function (blob) {
+            return { blob: blob, filename: filename };
+          });
+        }).then(function (result) {
+          var url = URL.createObjectURL(result.blob);
+          var link = document.createElement("a");
+          link.href = url;
+          link.download = result.filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          exportSuccessText.textContent = "Downloaded " + result.filename + ".";
+          exportSuccessSection.classList.remove("hidden");
+        }).catch(function (err) {
+          exportErrorText.textContent = err.message || "Network error";
+          exportErrorSection.classList.remove("hidden");
+        }).finally(function () {
+          exportDownloadButton.disabled = false;
+          exportDownloadButton.textContent = "Download export";
+        });
       });
 
       var importWorkspaceForm = document.getElementById("import-workspace-form");
