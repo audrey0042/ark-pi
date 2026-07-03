@@ -34,6 +34,11 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert 'id="import-form"' in html
     assert 'id="import-file"' in html
     assert 'accept=".txt,text/plain"' in html
+    assert 'id="delete-index"' in html
+    assert "Delete selected index" in html
+    assert "fetchDelete" in html
+    assert "/api/indexes/" in html
+    assert "window.confirm" in html
     assert "include_context" in html
     assert "include_prompt" in html
 

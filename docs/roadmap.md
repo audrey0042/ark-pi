@@ -86,15 +86,21 @@ Browser-side `.txt` import in the built-in web UI. JavaScript reads the selected
 
 **Status: done**
 
-## 16. WiFi AP and systemd deployment
+## 16. Workspace index management
+
+Catalog-aware deletion of named workspace indexes. `DELETE /api/indexes/{slug}` and web UI **Delete selected index** with confirmation. Deletes are constrained to `ARK_WORKSPACE_DIR`; catalog entries are removed after filesystem cleanup.
+
+**Status: done**
+
+## 17. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 17. SimpleWiki ingest
+## 18. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 18. Backup / export / import strategy
+## 19. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

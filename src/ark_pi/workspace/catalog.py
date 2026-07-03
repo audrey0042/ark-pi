@@ -1,12 +1,21 @@
 import json
+import shutil
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ark_pi.workspace.paths import resolve_workspace_dir
+from ark_pi.workspace.paths import index_root_dir, resolve_workspace_dir
 
 CATALOG_SCHEMA_VERSION = 1
 CATALOG_FILENAME = "catalog.json"
+
+
+class WorkspaceError(Exception):
+    """Raised for invalid workspace index operations."""
+
+
+class WorkspaceIndexNotFoundError(Exception):
+    """Raised when a workspace index slug is not in the catalog."""
 
 
 @dataclass
@@ -96,6 +105,61 @@ def upsert_index(workspace_dir: Path, entry: CatalogIndexEntry) -> None:
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     tmp_path.replace(path)
+
+
+@dataclass(frozen=True)
+class DeleteIndexResult:
+    slug: str
+    deleted: bool
+    message: str
+
+
+def remove_index_from_catalog(workspace_dir: Path, slug: str) -> None:
+    path = catalog_path(workspace_dir)
+    entries = load_catalog(workspace_dir)
+    remaining = [entry for entry in entries if entry.slug != slug]
+    if len(remaining) == len(entries):
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": CATALOG_SCHEMA_VERSION,
+        "indexes": [asdict(item) for item in remaining],
+    }
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def delete_index(workspace_dir: Path, slug: str) -> DeleteIndexResult:
+    try:
+        index_root = index_root_dir(workspace_dir, slug)
+    except ValueError as exc:
+        raise WorkspaceError(str(exc)) from exc
+
+    slug_name = index_root.name
+    entry = get_index(workspace_dir, slug_name)
+    if entry is None:
+        raise WorkspaceIndexNotFoundError("Workspace index not found.")
+
+    directory_existed = index_root.is_dir()
+    if directory_existed:
+        try:
+            shutil.rmtree(index_root)
+        except OSError as exc:
+            msg = f"Failed to delete index directory: {index_root}"
+            raise WorkspaceError(msg) from exc
+
+    remove_index_from_catalog(workspace_dir, slug_name)
+
+    if directory_existed:
+        message = f"Deleted workspace index {slug_name!r}."
+    else:
+        message = (
+            f"Removed catalog entry for {slug_name!r}; "
+            "index directory was already missing."
+        )
+
+    return DeleteIndexResult(slug=slug_name, deleted=True, message=message)
 
 
 def utc_now_iso() -> str:

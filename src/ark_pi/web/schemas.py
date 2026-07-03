@@ -228,3 +228,9 @@ class IndexCatalogDetailResponse(BaseModel):
     source_count: int
     created_at: str
     updated_at: str
+
+
+class DeleteIndexResponse(BaseModel):
+    slug: str
+    deleted: bool
+    message: str

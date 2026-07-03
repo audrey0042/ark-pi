@@ -126,6 +126,8 @@ With the server running (`ark serve --host 127.0.0.1 --port 8000`), open [http:/
 
 **Ask:** pick an index from the dropdown and click **Ask**. No filesystem paths required for normal use.
 
+**Delete:** use **Delete selected index** in the Ask panel to remove a stale index after confirmation.
+
 Or ingest via curl (workspace mode):
 
 ```bash
@@ -169,6 +171,10 @@ Supports a single `.txt` file or a directory of `.txt` files. Source paths are r
 Pick a `.txt` file from your phone or laptop in the **Import text file** panel. The browser reads the file locally (via `FileReader` or `file.text()`) and sends the text to `POST /api/ingest/text`. This is **not** backend multipart upload — raw files are not stored on the server.
 
 Only plain `.txt` / `text/plain` files are supported. PDF, DOCX, HTML, and Markdown parsing are future work.
+
+## Workspace index management
+
+Named workspace indexes can be deleted from the web UI (**Delete selected index**) or via `DELETE /api/indexes/{slug}`. Deletion removes the index directory under `ARK_WORKSPACE_DIR/indexes/<slug>/` and updates `catalog.json`. Deletes are constrained to the configured workspace — they never touch `source_dir` or paths outside the workspace.
 
 ## What is intentionally local-only right now
 
