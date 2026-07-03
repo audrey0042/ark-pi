@@ -2,10 +2,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Role = Literal["rag", "llm", "dev"]
+LlmBackend = Literal["mock", "openai-compatible"]
 
 
 class ArkSettings(BaseSettings):
@@ -29,7 +30,14 @@ class ArkSettings(BaseSettings):
     llm_base_url: str = "http://127.0.0.1:8080"
     distance_threshold: float = 0.5
 
-    # LLM / llama.cpp
+    # LLM client
+    llm_backend: LlmBackend = "mock"
+    llm_model: str = "local"
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_max_tokens: int = Field(default=512, gt=0)
+    llm_temperature: float = Field(default=0.0, ge=0)
+
+    # LLM / llama.cpp server (ark-llm Pi)
     llama_host: str = "0.0.0.0"
     llama_port: int = 8080
     model_dir: Path = Path("./models")

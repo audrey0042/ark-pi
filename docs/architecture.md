@@ -23,7 +23,7 @@
 - Text extraction, chunking, embedding, vector indexing
 - Chroma vector database storage
 - Context retrieval and prompt assembly
-- HTTP client to ark-llm over Ethernet
+- LLM client boundary (`ark_pi.llm_client`) — mock backend for local dev, OpenAI-compatible HTTP client for future ark-llm calls over Ethernet
 
 ## What runs on ark-llm
 
@@ -54,7 +54,7 @@ Phone/Laptop
   -> Web UI / RAG API on ark-rag
   -> Chroma search on ark-rag
   -> Prompt assembly on ark-rag
-  -> Ethernet request to ark-llm
+  -> LLM client on ark-rag (mock locally; openai-compatible over Ethernet in production)
   -> llama.cpp server on ark-llm
   -> Response back to ark-rag
   -> Answer shown in browser
@@ -62,4 +62,6 @@ Phone/Laptop
 
 ## Local development
 
-During scaffold and early development, work happens on a laptop with `ARK_ROLE=dev`. No Pi hardware or external services are required. See the root README for details.
+During scaffold and early development, work happens on a laptop with `ARK_ROLE=dev`. No Pi hardware or external services are required.
+
+The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retrieval, prompt assembly, and client wiring without network calls, llama.cpp, or model files. The `openai-compatible` backend is intended for future llama.cpp server use on ark-llm and is opt-in only. See the root README for details.

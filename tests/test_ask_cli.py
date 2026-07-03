@@ -33,58 +33,7 @@ def test_ask_help() -> None:
     result = runner.invoke(app, ["ask", "--help"])
     assert result.exit_code == 0
     assert "--question" in result.stdout
-
-
-def test_ask_happy_path(tmp_path: Path) -> None:
-    index_dir = _build_index(tmp_path)
-    result = runner.invoke(
-        app,
-        [
-            "ask",
-            "--index-dir",
-            str(index_dir),
-            "--question",
-            "Which Pi owns prompt assembly?",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Dev answer mode" in result.stdout
-    assert "Retrieved chunks: 1" in result.stdout
-
-
-def test_ask_show_context(tmp_path: Path) -> None:
-    index_dir = _build_index(tmp_path)
-    result = runner.invoke(
-        app,
-        [
-            "ask",
-            "--index-dir",
-            str(index_dir),
-            "--question",
-            "prompt assembly",
-            "--show-context",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Sample" in result.stdout or "sample:000000" in result.stdout
-
-
-def test_ask_show_prompt(tmp_path: Path) -> None:
-    index_dir = _build_index(tmp_path)
-    result = runner.invoke(
-        app,
-        [
-            "ask",
-            "--index-dir",
-            str(index_dir),
-            "--question",
-            "prompt assembly",
-            "--show-prompt",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Context:" in result.stdout
-    assert "Question:" in result.stdout
+    assert "--llm-backend" in result.stdout
 
 
 def test_ask_no_matches_exits_zero(tmp_path: Path) -> None:

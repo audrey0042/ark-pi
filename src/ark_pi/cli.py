@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from pathlib import Path
 
 import typer
@@ -9,15 +10,23 @@ from rich.table import Table
 from ark_pi import __version__
 from ark_pi import config as ark_config
 from ark_pi.ingest import chunking, sources as ingest_sources
-from ark_pi.rag import dev_answer, prompting
+from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
+from ark_pi.rag import prompting
 from ark_pi.rag import index as rag_index
 
 app = typer.Typer(name="ark", help="Ark Pi — offline/local RAG appliance")
 ingest_app = typer.Typer(help="Document ingestion commands")
 index_app = typer.Typer(help="Local index commands")
+llm_app = typer.Typer(help="LLM client commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
+app.add_typer(llm_app, name="llm")
 console = Console()
+
+
+class LlmBackendOption(str, Enum):
+    mock = "mock"
+    openai_compatible = "openai-compatible"
 
 
 @app.command()
@@ -222,12 +231,44 @@ def ask(
     limit: int = typer.Option(5, "--limit", min=1),
     show_context: bool = typer.Option(False, "--show-context", help="Show retrieved context chunks"),
     show_prompt: bool = typer.Option(False, "--show-prompt", help="Show the assembled RAG prompt"),
+    llm_backend: LlmBackendOption | None = typer.Option(
+        None,
+        "--llm-backend",
+        help="LLM backend to use (default: from config, usually mock)",
+    ),
+    llm_base_url: str | None = typer.Option(
+        None,
+        "--llm-base-url",
+        help="Base URL for openai-compatible backend",
+    ),
+    max_tokens: int | None = typer.Option(
+        None,
+        "--max-tokens",
+        min=1,
+        help="Maximum tokens for LLM completion",
+    ),
+    temperature: float | None = typer.Option(
+        None,
+        "--temperature",
+        help="Sampling temperature for LLM completion",
+    ),
 ) -> None:
-    """Search the local index, assemble a prompt, and return a dev/mock answer."""
+    """Search the local index, assemble a prompt, and call the configured LLM backend."""
     stripped_question = question.strip()
     if not stripped_question:
         typer.echo("Question must not be empty.", err=True)
         raise typer.Exit(code=1)
+
+    settings = ark_config.get_settings()
+    resolved_max_tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
+    resolved_temperature = temperature if temperature is not None else settings.llm_temperature
+    if resolved_temperature < 0:
+        typer.echo("temperature must be >= 0.", err=True)
+        raise typer.Exit(code=1)
+
+    resolved_backend = (
+        llm_backend.value if llm_backend is not None else settings.llm_backend
+    )
 
     try:
         results = rag_index.search_index(index_dir, stripped_question, limit=limit)
@@ -243,11 +284,29 @@ def ask(
         return
 
     prompt = prompting.build_rag_prompt(stripped_question, results)
-    answer = dev_answer.make_dev_answer(stripped_question, results, prompt)
+
+    base_url = llm_base_url if llm_base_url is not None else settings.llm_base_url
+    try:
+        client = create_llm_client(
+            resolved_backend,
+            base_url=base_url if resolved_backend == "openai-compatible" else None,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+        response = client.complete(
+            LlmRequest(
+                prompt=prompt,
+                model=settings.llm_model,
+                max_tokens=resolved_max_tokens,
+                temperature=resolved_temperature,
+            )
+        )
+    except LlmClientError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
     console.print(f"Question: {stripped_question}")
     console.print()
-    console.print(answer)
+    console.print(response.text)
     console.print()
     console.print(f"Retrieved chunks: {len(results)}")
 
@@ -271,6 +330,16 @@ def ask(
 
     if show_prompt:
         console.print(Panel(prompt, title="Assembled Prompt", expand=False))
+
+
+@llm_app.command("mock")
+def llm_mock(
+    prompt: str = typer.Option(..., "--prompt", help="Prompt to send to the mock LLM backend"),
+) -> None:
+    """Call the mock LLM backend directly (no network)."""
+    client = create_llm_client("mock")
+    response = client.complete(LlmRequest(prompt=prompt))
+    console.print(response.text)
 
 
 def main() -> None:

@@ -17,7 +17,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Project status
 
-**Initial scaffold plus local chunking, lexical index/search, and dev ask flow.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, simple retrieval, prompt assembly, and dev/mock answers, plus documentation and smoke tests. Chroma semantic indexing, retrieval API, web UI, llama.cpp integration, and Pi deployment are not implemented yet.
+**Initial scaffold plus local chunking, lexical index/search, RAG prompt assembly, and a mock LLM client boundary.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, simple retrieval, prompt assembly, and mock LLM responses, plus documentation and smoke tests. Chroma semantic indexing, retrieval API, web UI, llama.cpp deployment, and Pi deployment are not implemented yet.
 
 ## Local laptop development
 
@@ -72,16 +72,34 @@ The current `simple` backend uses deterministic token overlap scoring — not se
 
 Generated indexes under `indexes/` or `/tmp/` are runtime artifacts and must not be committed.
 
-## Dev ask flow
+## LLM client boundary / Mock LLM backend
 
-Ask a question against a local index and get a dev/mock answer with optional context and prompt display:
+`ark ask` searches the local index, assembles a RAG prompt, and calls the configured LLM client. By default it uses the **mock** backend — fully offline, no llama.cpp server or model files required:
 
 ```bash
-ark ask --index-dir /tmp/ark_index --question "Which Pi owns retrieval?" --show-context
+ark ask --index-dir /tmp/ark_index --question "Which Pi owns generation?" --show-context
 ark ask --index-dir /tmp/ark_index --question "Which Pi owns prompt assembly?" --show-prompt
 ```
 
-This is **dev/mock answer mode** — it validates retrieval and prompt assembly but does not call a real LLM. llama.cpp integration comes later.
+The mock backend returns a deterministic response that confirms retrieval, prompt assembly, and client wiring are connected. It does not pretend to be real intelligence.
+
+Test the client boundary directly:
+
+```bash
+ark llm mock --prompt "hello"
+```
+
+Future opt-in HTTP example (not required for local tests — needs a running llama.cpp OpenAI-compatible server on ark-llm):
+
+```bash
+ark ask \
+  --index-dir /tmp/ark_index \
+  --question "Which Pi owns generation?" \
+  --llm-backend openai-compatible \
+  --llm-base-url http://192.168.50.2:8080
+```
+
+Configure defaults via `.env` (`ARK_LLM_BACKEND=mock` for local dev). See `.env.example`.
 
 ## What belongs in git
 
