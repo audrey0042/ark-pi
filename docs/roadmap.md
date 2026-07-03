@@ -92,15 +92,21 @@ Catalog-aware deletion of named workspace indexes. `DELETE /api/indexes/{slug}` 
 
 **Status: done**
 
-## 17. WiFi AP and systemd deployment
+## 17. Workspace CLI management
+
+Terminal parity for workspace indexes: `ark workspace list`, `show`, and `delete` (with `--yes`). Reuses catalog-aware helpers; no filesystem scanning beyond the workspace catalog.
+
+**Status: done**
+
+## 18. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 18. SimpleWiki ingest
+## 19. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 19. Backup / export / import strategy
+## 20. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

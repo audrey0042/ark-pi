@@ -14,7 +14,9 @@ from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.rag.index import IndexErrorBase
+from ark_pi.workspace import catalog as workspace_catalog
 from ark_pi.workspace import ingest as workspace_ingest
+from ark_pi.workspace.catalog import WorkspaceError, WorkspaceIndexNotFoundError
 
 app = typer.Typer(name="ark", help="Ark Pi — offline/local RAG appliance")
 ingest_app = typer.Typer(help="Document ingestion commands")
@@ -39,6 +41,11 @@ class IndexBackendOption(str, Enum):
 
 
 def _handle_index_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _handle_workspace_errors(exc: BaseException) -> None:
     typer.echo(str(exc), err=True)
     raise typer.Exit(code=1) from exc
 
@@ -168,6 +175,91 @@ def index_build(
     table.add_row("backend", stats.backend)
     table.add_row("chunks", str(stats.chunk_count))
     table.add_row("index_dir", str(stats.index_dir))
+    console.print(table)
+
+
+@workspace_app.command("list")
+def workspace_list() -> None:
+    """List named workspace indexes from the local catalog."""
+    settings = ark_config.get_settings()
+    entries = workspace_catalog.list_indexes(settings.workspace_dir)
+    if not entries:
+        console.print("No workspace indexes found.")
+        return
+
+    table = Table(title="Workspace Indexes")
+    table.add_column("Name", style="bold")
+    table.add_column("Slug")
+    table.add_column("Backend")
+    table.add_column("Chunks", justify="right")
+    table.add_column("Sources", justify="right")
+    table.add_column("Updated")
+
+    for entry in entries:
+        table.add_row(
+            entry.name,
+            entry.slug,
+            entry.backend,
+            str(entry.chunk_count),
+            str(entry.source_count),
+            entry.updated_at,
+        )
+    console.print(table)
+
+
+@workspace_app.command("show")
+def workspace_show(
+    slug: str = typer.Option(..., "--slug", help="Workspace index slug"),
+) -> None:
+    """Show details for one named workspace index."""
+    settings = ark_config.get_settings()
+    entry = workspace_catalog.get_index(settings.workspace_dir, slug)
+    if entry is None:
+        typer.echo(f"Workspace index not found: {slug}", err=True)
+        raise typer.Exit(code=1)
+
+    table = Table(title=f"Workspace Index: {entry.name}")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("name", entry.name)
+    table.add_row("slug", entry.slug)
+    table.add_row("backend", entry.backend)
+    table.add_row("chunk_count", str(entry.chunk_count))
+    table.add_row("source_count", str(entry.source_count))
+    table.add_row("chunks_path", entry.chunks_path)
+    table.add_row("index_dir", entry.index_dir)
+    table.add_row("created_at", entry.created_at)
+    table.add_row("updated_at", entry.updated_at)
+    console.print(table)
+
+
+@workspace_app.command("delete")
+def workspace_delete(
+    slug: str = typer.Option(..., "--slug", help="Workspace index slug to delete"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm destructive delete"),
+) -> None:
+    """Delete a named workspace index and remove its catalog entry."""
+    if not yes:
+        typer.echo(
+            "Refusing to delete without --yes. Pass --yes to confirm deletion.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    settings = ark_config.get_settings()
+    try:
+        result = workspace_catalog.delete_index(settings.workspace_dir, slug)
+    except WorkspaceIndexNotFoundError as exc:
+        _handle_workspace_errors(exc)
+    except WorkspaceError as exc:
+        _handle_workspace_errors(exc)
+
+    table = Table(title="Workspace Delete Summary")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("slug", result.slug)
+    table.add_row("deleted", str(result.deleted))
+    table.add_row("message", result.message)
     console.print(table)
 
 
