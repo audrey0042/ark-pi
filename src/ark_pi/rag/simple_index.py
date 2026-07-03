@@ -4,11 +4,10 @@ import shutil
 from collections import Counter
 from pathlib import Path
 
-from ark_pi.rag.index import ChunkDocument, IndexStats, SearchResult
+from ark_pi.rag.index import CREATED_BY, ChunkDocument, IndexStats, SearchResult
 
 BACKEND_NAME = "simple"
 SCHEMA_VERSION = 1
-CREATED_BY = "ark-pi"
 DOCUMENTS_FILE = "documents.jsonl"
 TERMS_FILE = "terms.json"
 MANIFEST_FILE = "manifest.json"

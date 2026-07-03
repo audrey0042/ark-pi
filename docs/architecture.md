@@ -21,7 +21,8 @@
 - RAG API (FastAPI)
 - Document ingestion pipeline
 - Text extraction, chunking, embedding, vector indexing
-- Chroma vector database storage
+- Index backend abstraction: simple lexical fallback for offline dev; optional Chroma vector storage on ark-rag
+- Chroma vector database storage (optional backend; not required for laptop dev/tests)
 - Context retrieval and prompt assembly
 - LLM client boundary (`ark_pi.llm_client`) — mock backend for local dev, OpenAI-compatible HTTP client for future ark-llm calls over Ethernet
 
@@ -64,4 +65,6 @@ Phone/Laptop
 
 During scaffold and early development, work happens on a laptop with `ARK_ROLE=dev`. No Pi hardware or external services are required.
 
-The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retrieval, prompt assembly, and client wiring without network calls, llama.cpp, or model files. The `openai-compatible` backend is intended for future llama.cpp server use on ark-llm and is opt-in only. See the root README for details.
+The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retrieval, prompt assembly, and client wiring without network calls, llama.cpp, or model files. The `openai-compatible` backend is intended for future llama.cpp server use on ark-llm and is opt-in only.
+
+The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides deterministic lexical search for offline laptop development and tests. The optional `chroma` backend lazy-loads `chromadb` only when selected and is intended for future ark-rag vector storage — install with `pip install -e '.[chroma]'` when ready. Semantic embedding model selection is a future slice. See the root README for details.

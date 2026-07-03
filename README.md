@@ -1,32 +1,65 @@
 # Ark Pi
 
-Ark Pi is a two-Raspberry-Pi offline RAG appliance. You connect a phone or laptop to WiFi on the **RAG Pi**, ask questions through a web UI, and get answers grounded in locally indexed documents — with inference running on a separate **LLM Pi** over Ethernet. No cloud required.
+Ark Pi is an experimental two-Raspberry-Pi local RAG appliance.
+
+The goal is simple: connect a phone or laptop to a small local WiFi box, ask questions, and get answers grounded in documents stored on the device. No cloud account, no hosted vector database, no remote inference service.
+
+The target deployment uses two Raspberry Pi 5 devices. The **RAG Pi** (`ark-rag`) owns ingestion, indexing, retrieval, prompt assembly, and the web/API surface. The **LLM Pi** (`ark-llm`) runs llama.cpp inference and stores model files. They talk over Ethernet while clients connect to the RAG Pi over WiFi.
+
+This repo holds the recipe and tooling — not generated indexes, model weights, or runtime data.
+
+## Current status
+
+Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two Pis and forget about.
+
+**Works today on a laptop, fully offline:**
+
+- Document chunking (`ark ingest chunk`)
+- Simple lexical index build and search (`ark index`)
+- RAG prompt assembly and `ark ask`
+- Mock LLM backend for end-to-end wiring checks
+- Project config, CLI, tests, and docs
+
+**Still future work:**
+
+- Semantic embeddings and real vector retrieval
+- Chroma storage on ark-rag in production
+- Web UI and RAG API
+- WiFi access point setup
+- systemd deployment on both Pis
+- llama.cpp server deployment on ark-llm
+
+See [docs/roadmap.md](docs/roadmap.md) for the staged plan.
 
 ## Architecture
 
-Two Raspberry Pi 5 devices connected directly over Ethernet:
+```text
+Phone / laptop
+      |
+      | WiFi
+      v
+ark-rag
+  - WiFi access point
+  - web UI and RAG API (future)
+  - document ingestion
+  - chunking and indexing
+  - retrieval and prompt assembly
+      |
+      | Ethernet
+      v
+ark-llm
+  - llama.cpp server
+  - local GGUF model files
+  - text generation only
+```
 
-| Device | Role |
-|--------|------|
-| **ark-rag** | WiFi access point, web UI, RAG API, document ingestion, embedding/indexing (Chroma), retrieval, prompt assembly |
-| **ark-llm** | llama.cpp server only — receives assembled prompts, returns generated text |
+The RAG Pi keeps all document and index state. The LLM Pi stays stateless: it receives an assembled prompt and returns text.
 
-The repo contains the **recipe**, not generated artifacts. Each Pi can rebuild its local index from source documents. Models, indexes, and logs are disposable runtime data.
+For request flow, backend boundaries, and design rationale, see [docs/architecture.md](docs/architecture.md). Hardware and storage notes are in [docs/hardware.md](docs/hardware.md).
 
-See [docs/architecture.md](docs/architecture.md) for the full design.
+## Local development
 
-## Project status
-
-**Initial scaffold plus local chunking, lexical index/search, RAG prompt assembly, and a mock LLM client boundary.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, simple retrieval, prompt assembly, and mock LLM responses, plus documentation and smoke tests. Chroma semantic indexing, retrieval API, web UI, llama.cpp deployment, and Pi deployment are not implemented yet.
-
-## Local laptop development
-
-Current development happens on a normal Ubuntu laptop — not on either Pi.
-
-- Default role: `ARK_ROLE=dev`
-- Safe local paths: `./data`, `./indexes`, `./models`
-- No Pi hardware, WiFi AP, Ethernet link, llama.cpp, Chroma, or model files required
-- All tests pass offline
+Day-to-day work runs on a normal laptop with `ARK_ROLE=dev`. You do not need Pi hardware, WiFi, Ethernet, llama.cpp, Chroma, or model files for the default path.
 
 ```bash
 python3.12 -m venv .venv
@@ -35,105 +68,61 @@ pip install -e ".[dev]"
 
 ark version
 ark status
-ark config
 python -m pytest
 ```
 
-Copy `.env.example` to `.env` if you want to override defaults.
+Copy `.env.example` to `.env` only if you want to override defaults. Generated output goes under `./data`, `./indexes`, and `./models` locally — all excluded from git.
 
-## Local chunking
+## Try the local RAG loop
 
-Read local source documents and write deterministic chunk records to JSONL:
-
-```bash
-ark ingest chunk --input samples/docs --output /tmp/ark_chunks.jsonl
-ark ingest chunk --input /path/to/doc.txt --output /tmp/doc_chunks.jsonl
-ark ingest chunk --input data/source.jsonl --output data/chunks/source_chunks.jsonl
-```
-
-Supported inputs: a single `.txt` file, a directory of `.txt` files, or a `.jsonl` file with `title` and `text` fields per record.
-
-Options: `--chunk-size` (default 1000), `--chunk-overlap` (default 200), `--force` to overwrite an existing output file.
-
-Generated `.jsonl` chunk files are runtime artifacts and must not be committed (already excluded via `.gitignore`).
-
-## Local indexing and search
-
-Build a simple lexical index from chunk JSONL and search it offline:
+This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
 
 ```bash
-ark ingest chunk --input samples/docs --output /tmp/ark_chunks.jsonl --force
+mkdir -p /tmp/ark_smoke_docs
+cat > /tmp/ark_smoke_docs/ark-pi.txt << 'EOF'
+Ark Pi splits work across two Raspberry Pis.
+
+The RAG Pi owns document ingestion, chunking, indexing, retrieval, and prompt assembly.
+
+The LLM Pi runs llama.cpp and generates text from assembled prompts.
+EOF
+
+ark ingest chunk --input /tmp/ark_smoke_docs --output /tmp/ark_chunks.jsonl --force
 ark index build --chunks /tmp/ark_chunks.jsonl --index-dir /tmp/ark_index --force
-ark index stats --index-dir /tmp/ark_index
-ark index search --index-dir /tmp/ark_index --query "offline rag" --limit 3
+ark index search --index-dir /tmp/ark_index --query "Which Pi owns generation?" --limit 3
+ark ask --index-dir /tmp/ark_index --question "Which Pi owns prompt assembly?"
 ```
 
-The current `simple` backend uses deterministic token overlap scoring — not semantic vector search. It validates the retrieval flow on a laptop without Chroma, embeddings, or model files. Semantic search with Chroma comes later.
+The mock backend confirms retrieval, prompt assembly, and LLM client wiring — it does not call a real model. Add `--show-context` or `--show-prompt` to inspect what `ark ask` assembled.
 
-Generated indexes under `indexes/` or `/tmp/` are runtime artifacts and must not be committed.
+## What is intentionally local-only right now
 
-## LLM client boundary / Mock LLM backend
+**Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.
 
-`ark ask` searches the local index, assembles a RAG prompt, and calls the configured LLM client. By default it uses the **mock** backend — fully offline, no llama.cpp server or model files required:
+**LLM backend:** The default `mock` backend returns a deterministic response after search and prompt assembly. An OpenAI-compatible HTTP client exists for future llama.cpp use on ark-llm, but real inference is not part of the default dev path.
 
-```bash
-ark ask --index-dir /tmp/ark_index --question "Which Pi owns generation?" --show-context
-ark ask --index-dir /tmp/ark_index --question "Which Pi owns prompt assembly?" --show-prompt
-```
+Deeper CLI options, backend flags, and optional Chroma experiments are documented in [docs/architecture.md](docs/architecture.md) and `.env.example`.
 
-The mock backend returns a deterministic response that confirms retrieval, prompt assembly, and client wiring are connected. It does not pretend to be real intelligence.
+## Repository hygiene
 
-Test the client boundary directly:
+**Belongs in git:** source under `src/`, docs under `docs/`, deployment placeholders under `deploy/`, tests, `pyproject.toml`, and `.env.example`.
 
-```bash
-ark llm mock --prompt "hello"
-```
-
-Future opt-in HTTP example (not required for local tests — needs a running llama.cpp OpenAI-compatible server on ark-llm):
-
-```bash
-ark ask \
-  --index-dir /tmp/ark_index \
-  --question "Which Pi owns generation?" \
-  --llm-backend openai-compatible \
-  --llm-base-url http://192.168.50.2:8080
-```
-
-Configure defaults via `.env` (`ARK_LLM_BACKEND=mock` for local dev). See `.env.example`.
-
-## What belongs in git
-
-- Source code under `src/`
-- Documentation under `docs/`
-- Deployment placeholders under `deploy/` (READMEs only for now)
-- Tests, `pyproject.toml`, `.env.example`
-
-## What must not be committed
+**Must not be committed:**
 
 - Virtual environments (`.venv/`)
-- Environment secrets (`.env`)
+- Secrets (`.env`)
 - Generated data (`data/`, `indexes/`, `logs/`, `chroma_store/`)
 - Model files (`models/`, `*.gguf`, `*.bin`, `*.safetensors`)
 - Dump and index artifacts (`*.jsonl`, `*.jsonl.zst`, `*.tar.zst`, `*.xml.bz2`, `*.sqlite3`, `*.duckdb`)
 
-## Future setup: ark-rag
-
-Placeholder — not ready for production use.
-
-1. Install Python 3.12 and clone this repo on the RAG Pi.
-2. Copy `.env.example` to `.env` and uncomment the **RAG Pi** section.
-3. Mount NVMe storage at `/srv/ark-pi/` (strongly preferred over MicroSD for index writes).
-4. See [deploy/rag-pi/README.md](deploy/rag-pi/README.md) for future networking, WiFi AP, and systemd notes.
-
-## Future setup: ark-llm
-
-Placeholder — not ready for production use.
-
-1. Install Python 3.12 and clone this repo on the LLM Pi.
-2. Copy `.env.example` to `.env` and uncomment the **LLM Pi** section.
-3. Place GGUF model files under `/srv/ark-pi/models/` (not in git).
-4. See [deploy/llm-pi/README.md](deploy/llm-pi/README.md) for future llama.cpp build and systemd notes.
+The repo is meant to be rebuildable from source. Indexes, chunks, logs, models, and dumps are disposable runtime artifacts.
 
 ## Roadmap
 
-See [docs/roadmap.md](docs/roadmap.md).
+Next major areas: embedding model pipeline, semantic retrieval, FastAPI endpoints, llama.cpp on ark-llm, a minimal web UI, and production deployment on both Pis.
+
+Full staged plan: [docs/roadmap.md](docs/roadmap.md)
+
+## License
+
+See [LICENSE](LICENSE).
