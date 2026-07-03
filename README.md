@@ -186,6 +186,13 @@ ark workspace delete --slug local-sample --yes
 
 `ark workspace delete` requires `--yes` to confirm. `ark workspace ingest-path` continues to build indexes from server-side files under `ARK_SOURCE_DIR`.
 
+```bash
+ark workspace export --output /tmp/ark-workspace-export.zip
+ark workspace export --output /tmp/sample-only.zip --slug sample
+```
+
+Export writes a local zip on the machine running ark-rag (catalog, index data, and `export_manifest.json`). Import/restore is future work.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.

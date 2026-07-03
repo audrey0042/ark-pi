@@ -39,6 +39,9 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "fetchDelete" in html
     assert "/api/indexes/" in html
     assert "window.confirm" in html
+    assert "Export workspace" in html
+    assert 'id="export-form"' in html
+    assert "/api/workspace/export" in html
     assert "include_context" in html
     assert "include_prompt" in html
 
