@@ -53,7 +53,7 @@ The LLM Pi is a dedicated inference worker. It receives a complete prompt and re
 Phone/Laptop
   -> WiFi AP on ark-rag
   -> Web UI (GET /) on ark-rag
-  -> POST /api/ingest/text (paste text -> chunks + index) or POST /api/ingest/path (local file) or POST /api/ask
+  -> POST /api/ingest/text (paste text or browser-imported text -> chunks + index) or POST /api/ingest/path (local file) or POST /api/ask
   -> Index search on ark-rag (simple lexical or optional Chroma)
   -> Prompt assembly on ark-rag
   -> LLM client on ark-rag (mock locally; openai-compatible over Ethernet in production)
@@ -77,9 +77,9 @@ Browser
   -> GET /api/status -> sanitized config (no network probes)
 ```
 
-Source documents for local file ingest live under `source_dir` (`ARK_SOURCE_DIR`, default `./data/sources`). The API and web UI resolve paths safely inside that directory — arbitrary server paths are not accepted. Browser file upload, PDF/DOCX parsing, and OCR are future work.
+Source documents for local file ingest live under `source_dir` (`ARK_SOURCE_DIR`, default `./data/sources`). The API and web UI resolve paths safely inside that directory — arbitrary server paths are not accepted. **Browser text file import** reads `.txt` files in the browser and sends their contents to `POST /api/ingest/text`; raw files are not uploaded or stored server-side in this slice. Backend multipart upload, PDF/DOCX parsing, and OCR are future work.
 
-Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON metadata in `catalog.json` — not a remote database and not discovered by scanning arbitrary paths. The web UI is a thin client over these endpoints. **Web text ingest** accepts pasted plain text; **local file ingest** reads server-side `.txt` files already on disk. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
+Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON metadata in `catalog.json` — not a remote database and not discovered by scanning arbitrary paths. The web UI is a thin client over these endpoints. **Web text ingest** accepts pasted plain text or browser-read `.txt` file contents; **local file ingest** reads server-side `.txt` files already on disk. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
 ## Local development
 

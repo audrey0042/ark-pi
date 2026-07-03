@@ -65,6 +65,7 @@
       margin-bottom: 0.25rem;
     }
     input[type="text"],
+    input[type="file"],
     textarea,
     select {
       width: 100%;
@@ -155,6 +156,22 @@
       border-radius: 4px;
     }
     #path-ingest-success-box strong { display: block; margin-bottom: 0.25rem; }
+    #import-error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #import-error-box strong { display: block; margin-bottom: 0.25rem; }
+    #import-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #import-success-box strong { display: block; margin-bottom: 0.25rem; }
     .chunk {
       border: 1px solid var(--border);
       border-radius: 4px;
@@ -182,9 +199,9 @@
   <div class="container">
     <h1>Ark Pi</h1>
     <p class="intro">
-      Local development UI. Paste text or ingest a local file to build an index,
-      then ask questions against it. Uses the mock LLM backend by default —
-      no cloud or external services.
+      Local development UI. Paste text, import a .txt file from your device,
+      or ingest a server-side file to build an index, then ask questions against it.
+      Uses the mock LLM backend by default — no cloud or external services.
     </p>
 
     <section class="panel" aria-labelledby="ingest-heading">
@@ -223,11 +240,51 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="import-heading">
+      <h2 id="import-heading">Import text file</h2>
+      <p class="hint">
+        Choose a .txt file from your phone or laptop. The browser reads the file locally
+        and sends its text to the server — no backend file upload or storage.
+      </p>
+      <form id="import-form">
+        <label for="import-file">Text file (.txt)</label>
+        <input type="file" id="import-file" name="file" accept=".txt,text/plain">
+
+        <label for="import-index-name">Index name</label>
+        <input type="text" id="import-index-name" name="index_name" value="imported" required>
+
+        <label for="import-doc-title">Document title</label>
+        <input type="text" id="import-doc-title" name="title" value="imported" required>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="import-force" name="force">
+          <label for="import-force">Force rebuild (overwrite existing index)</label>
+        </div>
+
+        <button type="submit" id="import-button">Import text file</button>
+      </form>
+
+      <div class="output">
+        <section id="import-error-section" class="hidden" aria-live="polite">
+          <div id="import-error-box">
+            <strong>Error:</strong>
+            <span id="import-error-text"></span>
+          </div>
+        </section>
+        <section id="import-success-section" class="hidden" aria-live="polite">
+          <div id="import-success-box">
+            <strong>Success:</strong>
+            <span id="import-success-text"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="path-ingest-heading">
       <h2 id="path-ingest-heading">Add local file</h2>
       <p class="hint">
         Files must already exist on this machine under the configured source directory.
-        Supports .txt files and directories of .txt files. Browser upload is not implemented yet.
+        Supports .txt files and directories of .txt files.
       </p>
       <form id="path-ingest-form">
         <label for="path-index-name">Index name</label>
@@ -267,7 +324,7 @@
       <select id="index-select" name="index_select" aria-describedby="index-hint">
         <option value="">Loading indexes…</option>
       </select>
-      <p id="index-hint" class="hint">No indexes yet — add text or a local file above to create one.</p>
+      <p id="index-hint" class="hint">No indexes yet — add text, import a file, or add a local file above to create one.</p>
       <button type="button" id="refresh-indexes" class="secondary">Refresh indexes</button>
       <input type="hidden" id="index-dir" name="index_dir" value="">
 
@@ -378,7 +435,7 @@
           emptyOption.textContent = "No indexes available";
           indexSelect.appendChild(emptyOption);
           indexDirInput.value = "";
-          indexHint.textContent = "No indexes yet — add text or a local file above to create one.";
+          indexHint.textContent = "No indexes yet — add text, import a file, or add a local file above to create one.";
           return;
         }
         indexesCache.forEach(function (entry) {
@@ -453,6 +510,118 @@
           .finally(function () {
             ingestButton.disabled = false;
             ingestButton.textContent = "Build index";
+          });
+      });
+
+      function stemFromFilename(name) {
+        var base = name.replace(/\\/g, "/").split("/").pop() || name;
+        if (base.toLowerCase().endsWith(".txt")) {
+          return base.slice(0, -4);
+        }
+        var dot = base.lastIndexOf(".");
+        if (dot > 0) {
+          return base.slice(0, dot);
+        }
+        return base;
+      }
+
+      function readFileAsText(file) {
+        if (typeof file.text === "function") {
+          return file.text();
+        }
+        return new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            resolve(reader.result || "");
+          };
+          reader.onerror = function () {
+            reject(new Error("Could not read the selected file."));
+          };
+          reader.readAsText(file);
+        });
+      }
+
+      var importForm = document.getElementById("import-form");
+      var importButton = document.getElementById("import-button");
+      var importFileInput = document.getElementById("import-file");
+      var importIndexNameInput = document.getElementById("import-index-name");
+      var importDocTitleInput = document.getElementById("import-doc-title");
+      var importErrorSection = document.getElementById("import-error-section");
+      var importErrorText = document.getElementById("import-error-text");
+      var importSuccessSection = document.getElementById("import-success-section");
+      var importSuccessText = document.getElementById("import-success-text");
+
+      function hideImportOutput() {
+        importErrorSection.classList.add("hidden");
+        importSuccessSection.classList.add("hidden");
+        importErrorText.textContent = "";
+        importSuccessText.textContent = "";
+      }
+
+      importFileInput.addEventListener("change", function () {
+        var file = importFileInput.files && importFileInput.files[0];
+        if (!file) {
+          return;
+        }
+        var stem = stemFromFilename(file.name);
+        if (stem) {
+          importIndexNameInput.value = stem;
+          importDocTitleInput.value = stem;
+        }
+      });
+
+      importForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hideImportOutput();
+
+        var file = importFileInput.files && importFileInput.files[0];
+        if (!file) {
+          importErrorText.textContent = "Select a .txt file to import.";
+          importErrorSection.classList.remove("hidden");
+          return;
+        }
+
+        importButton.disabled = true;
+        importButton.textContent = "Importing…";
+
+        readFileAsText(file)
+          .then(function (text) {
+            var trimmed = (text || "").trim();
+            if (!trimmed) {
+              throw new Error("The selected file is empty or contains only whitespace.");
+            }
+            var payload = {
+              title: importDocTitleInput.value.trim(),
+              text: trimmed,
+              index_name: importIndexNameInput.value.trim(),
+              use_workspace: true,
+              force: document.getElementById("import-force").checked
+            };
+            return fetchJson("/api/ingest/text", payload);
+          })
+          .then(function (result) {
+            if (!result) {
+              return;
+            }
+            if (!result.ok) {
+              importErrorText.textContent = parseApiError(result);
+              importErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            importSuccessText.textContent = data.message || (
+              "Built index with " + data.chunk_count + " chunk(s)."
+            );
+            importSuccessSection.classList.remove("hidden");
+            return loadIndexes(data.index_slug || data.index_name);
+          })
+          .catch(function (err) {
+            importErrorText.textContent = err.message || "Could not import file";
+            importErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            importButton.disabled = false;
+            importButton.textContent = "Import text file";
           });
       });
 
@@ -560,7 +729,7 @@
         hideOutput();
         var indexDir = indexDirInput.value.trim();
         if (!indexDir) {
-          showError("Select an index first, or build one using Add text or Add local file.");
+          showError("Select an index first, or build one using Add text, Import text file, or Add local file.");
           return;
         }
         askButton.disabled = true;
