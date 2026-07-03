@@ -11,7 +11,7 @@ from ark_pi import __version__
 from ark_pi import config as ark_config
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
-from ark_pi.rag import prompting
+from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.rag.index import IndexErrorBase
 
@@ -299,77 +299,76 @@ def ask(
         typer.echo("Question must not be empty.", err=True)
         raise typer.Exit(code=1)
 
-    settings = ark_config.get_settings()
-    resolved_max_tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
-    resolved_temperature = temperature if temperature is not None else settings.llm_temperature
-    if resolved_temperature < 0:
-        typer.echo("temperature must be >= 0.", err=True)
-        raise typer.Exit(code=1)
-
-    resolved_backend = (
-        llm_backend.value if llm_backend is not None else settings.llm_backend
-    )
+    resolved_llm_backend = llm_backend.value if llm_backend is not None else None
 
     try:
-        results = rag_index.search_index(index_dir, stripped_question, limit=limit)
+        result = rag_ask.run_ask(
+            index_dir,
+            stripped_question,
+            limit=limit,
+            llm_backend=resolved_llm_backend,
+            llm_base_url=llm_base_url,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
     except IndexErrorBase as exc:
         _handle_index_errors(exc)
     except ValueError as exc:
-        _handle_index_errors(exc)
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     except FileNotFoundError as exc:
         _handle_index_errors(exc)
-
-    if not results:
-        console.print("No relevant context found.")
-        return
-
-    prompt = prompting.build_rag_prompt(stripped_question, results)
-
-    base_url = llm_base_url if llm_base_url is not None else settings.llm_base_url
-    try:
-        client = create_llm_client(
-            resolved_backend,
-            base_url=base_url if resolved_backend == "openai-compatible" else None,
-            timeout_seconds=settings.llm_timeout_seconds,
-        )
-        response = client.complete(
-            LlmRequest(
-                prompt=prompt,
-                model=settings.llm_model,
-                max_tokens=resolved_max_tokens,
-                temperature=resolved_temperature,
-            )
-        )
     except LlmClientError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    console.print(f"Question: {stripped_question}")
+    if result.no_context:
+        console.print(result.answer)
+        return
+
+    console.print(f"Question: {result.question}")
     console.print()
-    console.print(response.text)
+    console.print(result.answer)
     console.print()
-    console.print(f"Retrieved chunks: {len(results)}")
+    console.print(f"Retrieved chunks: {result.retrieved_count}")
 
     if show_context:
-        table = Table(title=f"Retrieved Context ({len(results)})")
+        table = Table(title=f"Retrieved Context ({result.retrieved_count})")
         table.add_column("Rank", style="bold")
         table.add_column("Score")
         table.add_column("Title")
         table.add_column("Chunk ID")
         table.add_column("Snippet")
 
-        for rank, result in enumerate(results, start=1):
+        for rank, chunk in enumerate(result.results, start=1):
             table.add_row(
                 str(rank),
-                f"{result.score:.2f}",
-                result.title,
-                result.id,
-                _truncate_snippet(result.text),
+                f"{chunk.score:.2f}",
+                chunk.title,
+                chunk.id,
+                _truncate_snippet(chunk.text),
             )
         console.print(table)
 
-    if show_prompt:
-        console.print(Panel(prompt, title="Assembled Prompt", expand=False))
+    if show_prompt and result.prompt is not None:
+        console.print(Panel(result.prompt, title="Assembled Prompt", expand=False))
+
+
+@app.command("serve")
+def serve(
+    host: str | None = typer.Option(None, "--host", help="Host to bind the API server"),
+    port: int | None = typer.Option(None, "--port", min=1, help="Port to bind the API server"),
+) -> None:
+    """Run the local FastAPI RAG API with uvicorn."""
+    import uvicorn
+
+    settings = ark_config.get_settings()
+    uvicorn.run(
+        "ark_pi.web.app:create_app",
+        factory=True,
+        host=host or settings.host,
+        port=port or settings.port,
+    )
 
 
 @llm_app.command("mock")
