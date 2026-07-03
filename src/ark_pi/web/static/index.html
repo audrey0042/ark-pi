@@ -111,6 +111,23 @@
       width: 100%;
       margin-bottom: 1rem;
     }
+    button.secondary.danger {
+      border-color: var(--error-border);
+      color: var(--error-fg);
+    }
+    button.secondary.danger:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #delete-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+    #delete-success-box strong { display: block; margin-bottom: 0.25rem; }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -326,6 +343,15 @@
       </select>
       <p id="index-hint" class="hint">No indexes yet — add text, import a file, or add a local file above to create one.</p>
       <button type="button" id="refresh-indexes" class="secondary">Refresh indexes</button>
+      <button type="button" id="delete-index" class="secondary danger" disabled>
+        Delete selected index
+      </button>
+      <section id="delete-success-section" class="hidden" aria-live="polite">
+        <div id="delete-success-box">
+          <strong>Deleted:</strong>
+          <span id="delete-success-text"></span>
+        </div>
+      </section>
       <input type="hidden" id="index-dir" name="index_dir" value="">
 
       <label for="question">Question</label>
@@ -407,6 +433,16 @@
         });
       }
 
+      function fetchDelete(url) {
+        return fetch(url, { method: "DELETE" }).then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          }).catch(function () {
+            return { ok: response.ok, status: response.status, data: null };
+          });
+        });
+      }
+
       var ingestForm = document.getElementById("ingest-form");
       var ingestButton = document.getElementById("ingest-button");
       var ingestErrorSection = document.getElementById("ingest-error-section");
@@ -417,7 +453,19 @@
       var indexSelect = document.getElementById("index-select");
       var indexHint = document.getElementById("index-hint");
       var refreshIndexesButton = document.getElementById("refresh-indexes");
+      var deleteIndexButton = document.getElementById("delete-index");
+      var deleteSuccessSection = document.getElementById("delete-success-section");
+      var deleteSuccessText = document.getElementById("delete-success-text");
       var indexesCache = [];
+
+      function updateDeleteButton() {
+        deleteIndexButton.disabled = !indexSelect.value;
+      }
+
+      function hideDeleteSuccess() {
+        deleteSuccessSection.classList.add("hidden");
+        deleteSuccessText.textContent = "";
+      }
 
       function hideIngestOutput() {
         ingestErrorSection.classList.add("hidden");
@@ -436,6 +484,7 @@
           indexSelect.appendChild(emptyOption);
           indexDirInput.value = "";
           indexHint.textContent = "No indexes yet — add text, import a file, or add a local file above to create one.";
+          updateDeleteButton();
           return;
         }
         indexesCache.forEach(function (entry) {
@@ -452,9 +501,11 @@
           return entry.slug === slugToSelect;
         }) || indexesCache[0];
         indexDirInput.value = selected.index_dir;
+        updateDeleteButton();
       }
 
       function loadIndexes(selectedSlug) {
+        hideDeleteSuccess();
         return fetchGet("/api/indexes").then(function (result) {
           if (!result.ok || !result.data) {
             indexHint.textContent = "Could not load indexes.";
@@ -473,6 +524,52 @@
           return entry.slug === indexSelect.value;
         });
         indexDirInput.value = selected ? selected.index_dir : "";
+        updateDeleteButton();
+        hideDeleteSuccess();
+      });
+
+      deleteIndexButton.addEventListener("click", function () {
+        hideDeleteSuccess();
+        hideOutput();
+        var slug = indexSelect.value;
+        if (!slug) {
+          showError("Select an index to delete.");
+          return;
+        }
+        var selected = indexesCache.find(function (entry) {
+          return entry.slug === slug;
+        });
+        var displayName = selected ? selected.name : slug;
+        var confirmed = window.confirm(
+          "Delete index \"" + displayName + "\"? This cannot be undone."
+        );
+        if (!confirmed) {
+          return;
+        }
+
+        deleteIndexButton.disabled = true;
+        deleteIndexButton.textContent = "Deleting…";
+
+        fetchDelete("/api/indexes/" + encodeURIComponent(slug))
+          .then(function (result) {
+            if (!result.ok) {
+              showError(parseApiError(result));
+              return;
+            }
+            var data = result.data;
+            deleteSuccessText.textContent = data.message || (
+              "Deleted index " + data.slug + "."
+            );
+            deleteSuccessSection.classList.remove("hidden");
+            return loadIndexes();
+          })
+          .catch(function (err) {
+            showError(err.message || "Network error");
+          })
+          .finally(function () {
+            deleteIndexButton.textContent = "Delete selected index";
+            updateDeleteButton();
+          });
       });
 
       ingestForm.addEventListener("submit", function (event) {

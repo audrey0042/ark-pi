@@ -1,8 +1,13 @@
 from ark_pi.workspace.catalog import (
     CatalogIndexEntry,
+    DeleteIndexResult,
+    WorkspaceError,
+    WorkspaceIndexNotFoundError,
+    delete_index,
     get_index,
     list_indexes,
     load_catalog,
+    remove_index_from_catalog,
     upsert_index,
 )
 from ark_pi.workspace.ingest import (
@@ -14,30 +19,39 @@ from ark_pi.workspace.ingest import (
 from ark_pi.workspace.paths import (
     ensure_path_inside_workspace,
     index_paths,
+    index_root_dir,
     resolve_source_dir,
     resolve_source_path,
     resolve_workspace_dir,
     slugify_index_name,
     validate_index_name,
+    validate_slug,
     validate_txt_source_path,
 )
 
 __all__ = [
     "CatalogIndexEntry",
+    "DeleteIndexResult",
+    "WorkspaceError",
+    "WorkspaceIndexNotFoundError",
     "WorkspaceIngestResult",
     "WorkspacePathIngestResult",
+    "delete_index",
     "ensure_path_inside_workspace",
     "get_index",
     "index_paths",
+    "index_root_dir",
     "ingest_source_path_to_workspace_index",
     "ingest_text_to_workspace_index",
     "list_indexes",
     "load_catalog",
+    "remove_index_from_catalog",
     "resolve_source_dir",
     "resolve_source_path",
     "resolve_workspace_dir",
     "slugify_index_name",
     "upsert_index",
     "validate_index_name",
+    "validate_slug",
     "validate_txt_source_path",
 ]

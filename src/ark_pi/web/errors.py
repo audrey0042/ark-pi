@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from ark_pi.llm_client import LlmConfigurationError, LlmResponseError, LlmTransportError
 from ark_pi.rag.index import IndexErrorBase, SearchResult
+from ark_pi.workspace.catalog import WorkspaceError, WorkspaceIndexNotFoundError
 from ark_pi.web.schemas import ErrorResponse, SearchResultItem
 
 
@@ -64,3 +65,14 @@ def register_exception_handlers(app: FastAPI) -> None:
         exc: LlmResponseError,
     ) -> JSONResponse:
         return _error_response(502, "llm_upstream_error", str(exc))
+
+    @app.exception_handler(WorkspaceIndexNotFoundError)
+    async def handle_workspace_index_not_found(
+        _request: Request,
+        exc: WorkspaceIndexNotFoundError,
+    ) -> JSONResponse:
+        return _error_response(404, "not_found", str(exc))
+
+    @app.exception_handler(WorkspaceError)
+    async def handle_workspace_error(_request: Request, exc: WorkspaceError) -> JSONResponse:
+        return _error_response(400, "workspace_error", str(exc))

@@ -70,6 +70,7 @@ The RAG API and built-in web UI live in `ark_pi.web`:
 Browser
   -> GET / or /ui  -> built-in HTML (inline CSS/JS, no CDN)
   -> GET /api/indexes -> workspace catalog (local catalog.json)
+  -> DELETE /api/indexes/{slug} -> catalog-aware index deletion
   -> POST /api/ingest/text -> workspace ingest -> chunking + rag_index.build_index + catalog upsert
   -> POST /api/ingest/path -> source_dir .txt file/dir -> same pipeline + catalog upsert
   -> POST /api/ask -> rag_ask.run_ask -> search + prompting + llm_client
@@ -79,7 +80,7 @@ Browser
 
 Source documents for local file ingest live under `source_dir` (`ARK_SOURCE_DIR`, default `./data/sources`). The API and web UI resolve paths safely inside that directory — arbitrary server paths are not accepted. **Browser text file import** reads `.txt` files in the browser and sends their contents to `POST /api/ingest/text`; raw files are not uploaded or stored server-side in this slice. Backend multipart upload, PDF/DOCX parsing, and OCR are future work.
 
-Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON metadata in `catalog.json` — not a remote database and not discovered by scanning arbitrary paths. The web UI is a thin client over these endpoints. **Web text ingest** accepts pasted plain text or browser-read `.txt` file contents; **local file ingest** reads server-side `.txt` files already on disk. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
+Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON metadata in `catalog.json` — not a remote database and not discovered by scanning arbitrary paths. The web UI is a thin client over these endpoints with a catalog-aware lifecycle: create (ingest), list, select, and delete. Delete operations derive paths from `workspace_dir/indexes/<slug>/` rather than trusting stored catalog paths. **Web text ingest** accepts pasted plain text or browser-read `.txt` file contents; **local file ingest** reads server-side `.txt` files already on disk. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
 ## Local development
 

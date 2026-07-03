@@ -12,6 +12,7 @@ from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.web.errors import register_exception_handlers, search_results_to_items
 from ark_pi.web.schemas import (
     AskRequest,
+    DeleteIndexResponse,
     HealthResponse,
     IndexBackendOption,
     IndexCatalogDetailResponse,
@@ -82,6 +83,16 @@ def create_app() -> FastAPI:
             source_count=entry.source_count,
             created_at=entry.created_at,
             updated_at=entry.updated_at,
+        )
+
+    @app.delete("/api/indexes/{slug}", response_model=DeleteIndexResponse)
+    def api_delete_index(slug: str) -> DeleteIndexResponse:
+        settings = ark_config.get_settings()
+        result = workspace_catalog.delete_index(settings.workspace_dir, slug)
+        return DeleteIndexResponse(
+            slug=result.slug,
+            deleted=result.deleted,
+            message=result.message,
         )
 
     @app.get("/api/index/stats", response_model=IndexStatsResponse)

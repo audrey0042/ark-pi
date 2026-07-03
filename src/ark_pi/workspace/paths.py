@@ -29,18 +29,49 @@ def validate_index_name(name: str) -> str:
     return slugify_index_name(stripped)
 
 
+def validate_slug(slug: str) -> str:
+    stripped = slug.strip()
+    if not stripped:
+        msg = "slug must not be empty"
+        raise ValueError(msg)
+    if ".." in stripped or "/" in stripped or "\\" in stripped:
+        msg = f"invalid slug: {slug!r}"
+        raise ValueError(msg)
+    normalized = slugify_index_name(stripped)
+    if normalized != stripped:
+        msg = f"invalid slug: {slug!r}"
+        raise ValueError(msg)
+    return stripped
+
+
 def resolve_workspace_dir(workspace_dir: Path) -> Path:
     return workspace_dir.expanduser().resolve()
 
 
 def index_paths(workspace_dir: Path, slug: str) -> tuple[Path, Path]:
-    root = resolve_workspace_dir(workspace_dir)
-    index_root = root / "indexes" / slug
+    index_root = index_root_dir(workspace_dir, slug)
     chunks_path = index_root / "chunks.jsonl"
     index_dir = index_root / "index"
-    ensure_path_inside_workspace(root, chunks_path)
-    ensure_path_inside_workspace(root, index_dir)
+    ensure_path_inside_workspace(resolve_workspace_dir(workspace_dir), chunks_path)
+    ensure_path_inside_workspace(resolve_workspace_dir(workspace_dir), index_dir)
     return chunks_path, index_dir
+
+
+def index_root_dir(workspace_dir: Path, slug: str) -> Path:
+    validated_slug = validate_slug(slug)
+    root = resolve_workspace_dir(workspace_dir)
+    index_root = (root / "indexes" / validated_slug).resolve()
+    ensure_path_inside_workspace(root, index_root)
+    if index_root == root:
+        msg = "cannot delete workspace root"
+        raise ValueError(msg)
+    indexes_root = (root / "indexes").resolve()
+    try:
+        index_root.relative_to(indexes_root)
+    except ValueError as exc:
+        msg = f"path escapes indexes directory: {index_root}"
+        raise ValueError(msg) from exc
+    return index_root
 
 
 def ensure_path_inside_workspace(workspace_dir: Path, path: Path) -> Path:
