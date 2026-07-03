@@ -185,6 +185,30 @@
       border-radius: 4px;
     }
     #llm-success-box strong { display: block; margin-bottom: 0.25rem; }
+    #preflight-summary {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    #preflight-checks {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #preflight-checks li {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+    #preflight-checks .check-status {
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      margin-right: 0.5rem;
+    }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -528,6 +552,22 @@
           </div>
         </section>
       </div>
+    </section>
+
+    <section class="panel" aria-labelledby="preflight-heading">
+      <h2 id="preflight-heading">Appliance preflight</h2>
+      <p class="hint">
+        Passive readiness checks for paths, catalog, backends, and LLM configuration.
+        Does not contact the LLM server — use LLM diagnostics to test reachability.
+      </p>
+
+      <div id="preflight-summary" aria-live="polite">
+        <p id="preflight-loading">Loading preflight…</p>
+      </div>
+
+      <ul id="preflight-checks"></ul>
+
+      <button type="button" id="preflight-run-button">Run preflight</button>
     </section>
 
     <section class="panel" aria-labelledby="llm-diagnostics-heading">
@@ -1285,6 +1325,52 @@
       var llmSuccessText = document.getElementById("llm-success-text");
       var llmTestOutput = document.getElementById("llm-test-output");
 
+      var preflightSummary = document.getElementById("preflight-summary");
+      var preflightLoading = document.getElementById("preflight-loading");
+      var preflightChecks = document.getElementById("preflight-checks");
+      var preflightRunButton = document.getElementById("preflight-run-button");
+
+      function renderPreflight(data) {
+        preflightSummary.innerHTML = (
+          "<p><strong>Overall status:</strong> " + data.overall_status + "</p>" +
+          "<p><strong>Role:</strong> " + data.role + "</p>" +
+          "<p><strong>Network checks performed:</strong> " + data.network_checks_performed + "</p>" +
+          "<p class=\"hint\">Updated " + data.generated_at + "</p>"
+        );
+        preflightChecks.innerHTML = "";
+        (data.checks || []).forEach(function (check) {
+          var item = document.createElement("li");
+          item.innerHTML = (
+            "<span class=\"check-status\">" + check.status + "</span>" +
+            "<strong>" + check.label + "</strong>: " + check.message
+          );
+          preflightChecks.appendChild(item);
+        });
+      }
+
+      function loadPreflight() {
+        if (preflightLoading) {
+          preflightLoading.textContent = "Loading preflight…";
+        }
+        return fetchGet("/api/preflight").then(function (result) {
+          if (!result.ok || !result.data) {
+            preflightSummary.textContent = "Could not load preflight.";
+            preflightChecks.innerHTML = "";
+            return;
+          }
+          renderPreflight(result.data);
+        });
+      }
+
+      preflightRunButton.addEventListener("click", function () {
+        preflightRunButton.disabled = true;
+        preflightRunButton.textContent = "Running…";
+        loadPreflight().finally(function () {
+          preflightRunButton.disabled = false;
+          preflightRunButton.textContent = "Run preflight";
+        });
+      });
+
       function hideLlmTestOutput() {
         llmErrorSection.classList.add("hidden");
         llmSuccessSection.classList.add("hidden");
@@ -1363,6 +1449,7 @@
       });
 
       loadLlmStatus();
+      loadPreflight();
     })();
   </script>
 </body>

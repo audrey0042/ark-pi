@@ -74,6 +74,9 @@ def settings_for_display(settings: ArkSettings) -> dict[str, Any]:
 def api_status_payload() -> dict[str, Any]:
     settings = get_settings()
     passive = llm_passive_status(settings)
+    from ark_pi import preflight as ark_preflight
+
+    preflight = ark_preflight.run_preflight(settings)
     return {
         "service": "ark-pi",
         "role": settings.role,
@@ -89,6 +92,10 @@ def api_status_payload() -> dict[str, Any]:
             "temperature": passive.temperature,
             "network_check_performed": passive.network_check_performed,
             "message": passive.message,
+        },
+        "preflight": {
+            "overall_status": preflight.overall_status,
+            "network_checks_performed": preflight.network_checks_performed,
         },
     }
 

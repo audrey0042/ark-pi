@@ -31,12 +31,34 @@ class LlmPassiveStatusResponse(BaseModel):
     message: str
 
 
+class PreflightSummaryResponse(BaseModel):
+    overall_status: str
+    network_checks_performed: bool
+
+
+class PreflightCheckResponse(BaseModel):
+    id: str
+    label: str
+    status: str
+    message: str
+    details: dict[str, Any]
+
+
+class PreflightResponse(BaseModel):
+    role: str
+    overall_status: str
+    generated_at: str
+    network_checks_performed: bool
+    checks: list[PreflightCheckResponse]
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str
     paths: dict[str, str]
     config: dict[str, Any]
     llm: LlmPassiveStatusResponse
+    preflight: PreflightSummaryResponse
 
 
 class LlmTestRequest(BaseModel):

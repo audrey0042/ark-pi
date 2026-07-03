@@ -216,6 +216,17 @@ ark llm test --llm-backend openai-compatible --llm-base-url http://192.168.50.2:
 
 The web UI **LLM diagnostics** panel calls `GET /api/llm/status` on load and `POST /api/llm/test` only when you click **Test LLM**. For production, point `ARK_LLM_BACKEND=openai-compatible` and `ARK_LLM_BASE_URL` at the ark-llm llama.cpp server.
 
+### Appliance preflight
+
+Run a passive readiness checklist for paths, catalog health, index backends, source ingest, import limits, and LLM configuration. Preflight does **not** contact the LLM server — use `ark llm test` for an active check.
+
+```bash
+ark preflight
+ark preflight --json
+```
+
+The web UI **Appliance preflight** panel calls `GET /api/preflight` on load and when you click **Run preflight**.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.
