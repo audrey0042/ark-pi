@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ark_pi import config as ark_config
+from ark_pi import preflight as ark_preflight
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.llm_client import diagnostics as llm_diagnostics
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT
@@ -28,6 +29,7 @@ from ark_pi.web.schemas import (
     LlmPassiveStatusResponse,
     LlmTestRequest,
     LlmTestResponse,
+    PreflightResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -90,6 +92,26 @@ def create_app() -> FastAPI:
             latency_ms=result.latency_ms,
             error=result.error,
             message=result.message,
+        )
+
+    @app.get("/api/preflight", response_model=PreflightResponse)
+    def api_preflight() -> PreflightResponse:
+        result = ark_preflight.run_preflight(ark_config.get_settings())
+        return PreflightResponse(
+            role=result.role,
+            overall_status=result.overall_status,
+            generated_at=result.generated_at,
+            network_checks_performed=result.network_checks_performed,
+            checks=[
+                {
+                    "id": check.id,
+                    "label": check.label,
+                    "status": check.status,
+                    "message": check.message,
+                    "details": check.details,
+                }
+                for check in result.checks
+            ],
         )
 
     @app.get("/api/indexes", response_model=IndexCatalogListResponse)

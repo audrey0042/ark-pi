@@ -9,6 +9,7 @@ from rich.table import Table
 
 from ark_pi import __version__
 from ark_pi import config as ark_config
+from ark_pi import preflight as ark_preflight
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
@@ -676,6 +677,29 @@ def llm_mock(
     client = create_llm_client("mock")
     response = client.complete(LlmRequest(prompt=prompt))
     console.print(response.text)
+
+
+@app.command()
+def preflight(
+    as_json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+) -> None:
+    """Run passive appliance readiness checks (no network calls)."""
+    result = ark_preflight.run_preflight(ark_config.get_settings())
+
+    if as_json:
+        console.print_json(json.dumps(ark_preflight.preflight_to_dict(result)))
+    else:
+        console.print(f"Overall status: [bold]{result.overall_status}[/bold]")
+        table = Table(title="Appliance Preflight")
+        table.add_column("Check", style="bold")
+        table.add_column("Status")
+        table.add_column("Message")
+        for check in result.checks:
+            table.add_row(check.id, check.status, check.message)
+        console.print(table)
+
+    if result.overall_status == "blocked":
+        raise typer.Exit(code=1)
 
 
 def main() -> None:

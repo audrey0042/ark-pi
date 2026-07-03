@@ -81,7 +81,8 @@ Browser
   -> POST /api/search -> rag_index.search_index
   -> GET /api/llm/status -> passive LLM config (no network)
   -> POST /api/llm/test -> explicit LLM diagnostic prompt
-  -> GET /api/status -> sanitized config and passive LLM summary (no network probes)
+  -> GET /api/preflight -> passive appliance readiness checklist (no network)
+  -> GET /api/status -> sanitized config, passive LLM summary, and preflight summary (no network probes)
 ```
 
 Source documents for local file ingest live under `source_dir` (`ARK_SOURCE_DIR`, default `./data/sources`). The API and web UI resolve paths safely inside that directory — arbitrary server paths are not accepted. **Browser text file import** reads `.txt` files in the browser and sends their contents to `POST /api/ingest/text`; raw files are not uploaded or stored server-side in this slice. Backend multipart upload, PDF/DOCX parsing, and OCR are future work.
@@ -92,6 +93,6 @@ Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/w
 
 During scaffold and early development, work happens on a laptop with `ARK_ROLE=dev`. No Pi hardware or external services are required.
 
-The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retrieval, prompt assembly, and client wiring without network calls, llama.cpp, or model files. The `openai-compatible` backend is intended for future llama.cpp server use on ark-llm and is opt-in only. **LLM diagnostics** expose passive status (`GET /api/llm/status`, `ark llm status`) without contacting ark-llm, and an explicit active test (`POST /api/llm/test`, `ark llm test`) that sends a tiny diagnostic prompt through the configured client when you choose to verify connectivity.
+The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retrieval, prompt assembly, and client wiring without network calls, llama.cpp, or model files. The `openai-compatible` backend is intended for future llama.cpp server use on ark-llm and is opt-in only. **LLM diagnostics** expose passive status (`GET /api/llm/status`, `ark llm status`) without contacting ark-llm, and an explicit active test (`POST /api/llm/test`, `ark llm test`) that sends a tiny diagnostic prompt through the configured client when you choose to verify connectivity. **Appliance preflight** (`GET /api/preflight`, `ark preflight`) runs a passive operator checklist for workspace paths, catalog health, source ingest readiness, index backends, import limits, and LLM configuration without hidden network probes.
 
 The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides deterministic lexical search for offline laptop development and tests. The optional `chroma` backend lazy-loads `chromadb` only when selected and is intended for future ark-rag vector storage — install with `pip install -e '.[chroma]'` when ready. Semantic embedding model selection is a future slice. See the root README for details.
