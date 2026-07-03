@@ -164,6 +164,46 @@ class TextIngestResponse(BaseModel):
     catalog_updated: bool = False
 
 
+class LocalPathIngestRequest(BaseModel):
+    index_name: str
+    source_path: str
+    backend: IndexBackendOption | None = None
+    chunk_size: int = Field(default=1000, gt=0)
+    chunk_overlap: int = Field(default=200, ge=0)
+    force: bool = False
+
+    @field_validator("index_name")
+    @classmethod
+    def strip_and_validate_index_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "index_name must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+    @field_validator("source_path")
+    @classmethod
+    def strip_and_validate_source_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "source_path must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+
+class LocalPathIngestResponse(BaseModel):
+    index_name: str
+    index_slug: str
+    source_path: str
+    source_count: int
+    chunk_count: int
+    backend: str
+    chunks_path: str
+    index_dir: str
+    catalog_updated: bool
+    message: str
+
+
 class IndexCatalogItem(BaseModel):
     name: str
     slug: str

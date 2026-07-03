@@ -74,15 +74,21 @@ Named indexes under `workspace_dir` with local `catalog.json` metadata. `GET /ap
 
 **Status: done**
 
-## 14. WiFi AP and systemd deployment
+## 14. Local file ingest
+
+Server-side `.txt` file and directory ingest from `source_dir` (`ARK_SOURCE_DIR`) into named workspace indexes. `POST /api/ingest/path`, web UI **Add local file** panel, and `ark workspace ingest-path`. Safe path containment; no browser upload or document parsers.
+
+**Status: done**
+
+## 15. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 15. SimpleWiki ingest
+## 16. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 16. Backup / export / import strategy
+## 17. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

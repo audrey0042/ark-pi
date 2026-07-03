@@ -18,7 +18,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 - Simple lexical index build and search (`ark index`)
 - RAG prompt assembly and `ark ask`
 - Local FastAPI RAG API (`ark serve`)
-- Minimal built-in web UI at `/` (named workspace indexes, paste text, ask)
+- Minimal built-in web UI at `/` (named workspace indexes, paste text, local file ingest, ask)
 - Mock LLM backend for end-to-end wiring checks
 - Project config, CLI, tests, and docs
 
@@ -134,6 +134,33 @@ curl http://127.0.0.1:8000/api/indexes
 ```
 
 Raw path ingest remains available for dev: `"use_workspace": false` with explicit `chunks_path` and `index_dir`.
+
+## Local file ingest
+
+Server-side text files under the configured source directory (`ARK_SOURCE_DIR`, default `./data/sources`) can be ingested into named workspace indexes. This is **not** browser file upload — files must already exist on the machine running ark-rag.
+
+```bash
+mkdir -p data/sources
+printf 'Ark Pi can ingest local text files.\n' > data/sources/sample.txt
+```
+
+**Web UI:** use the **Add local file** panel — set index name and source path `sample.txt`, click **Build from local file**.
+
+**API:**
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/ingest/path \
+  -H 'Content-Type: application/json' \
+  -d '{"index_name":"local-sample","source_path":"sample.txt","force":true}'
+```
+
+**CLI:**
+
+```bash
+ark workspace ingest-path --source sample.txt --index-name local-sample --force
+```
+
+Supports a single `.txt` file or a directory of `.txt` files. Source paths are resolved safely inside `ARK_SOURCE_DIR` — path traversal and paths outside the source directory are rejected.
 
 ## What is intentionally local-only right now
 

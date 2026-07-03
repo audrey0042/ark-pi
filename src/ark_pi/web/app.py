@@ -18,6 +18,8 @@ from ark_pi.web.schemas import (
     IndexCatalogItem,
     IndexCatalogListResponse,
     IndexStatsResponse,
+    LocalPathIngestRequest,
+    LocalPathIngestResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -209,6 +211,39 @@ def create_app() -> FastAPI:
             source_count=result.source_count,
             message=message,
             catalog_updated=False,
+        )
+
+    @app.post("/api/ingest/path", response_model=LocalPathIngestResponse)
+    def api_ingest_path(request: LocalPathIngestRequest) -> LocalPathIngestResponse:
+        settings = ark_config.get_settings()
+        resolved_backend = request.backend.value if request.backend is not None else None
+        result = workspace_ingest.ingest_source_path_to_workspace_index(
+            request.source_path,
+            request.index_name,
+            settings.source_dir,
+            settings.workspace_dir,
+            backend=resolved_backend,
+            config_backend=settings.index_backend,
+            chunk_size=request.chunk_size,
+            chunk_overlap=request.chunk_overlap,
+            force=request.force,
+        )
+        message = (
+            f"Built {result.backend} index {result.index_name!r} with "
+            f"{result.chunk_count} chunk(s) from {result.source_count} source(s) "
+            f"at {result.source_path}"
+        )
+        return LocalPathIngestResponse(
+            index_name=result.index_name,
+            index_slug=result.index_slug,
+            source_path=str(result.source_path),
+            source_count=result.source_count,
+            chunk_count=result.chunk_count,
+            backend=result.backend,
+            chunks_path=str(result.chunks_path),
+            index_dir=str(result.index_dir),
+            catalog_updated=result.catalog_updated,
+            message=message,
         )
 
     @app.get("/", include_in_schema=False)

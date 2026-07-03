@@ -14,13 +14,16 @@ from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.rag.index import IndexErrorBase
+from ark_pi.workspace import ingest as workspace_ingest
 
 app = typer.Typer(name="ark", help="Ark Pi — offline/local RAG appliance")
 ingest_app = typer.Typer(help="Document ingestion commands")
 index_app = typer.Typer(help="Local index commands")
+workspace_app = typer.Typer(help="Workspace index commands")
 llm_app = typer.Typer(help="LLM client commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
+app.add_typer(workspace_app, name="workspace")
 app.add_typer(llm_app, name="llm")
 console = Console()
 
@@ -165,6 +168,66 @@ def index_build(
     table.add_row("backend", stats.backend)
     table.add_row("chunks", str(stats.chunk_count))
     table.add_row("index_dir", str(stats.index_dir))
+    console.print(table)
+
+
+@workspace_app.command("ingest-path")
+def workspace_ingest_path(
+    source: str = typer.Option(
+        ...,
+        "--source",
+        help="Source .txt file or directory path (relative to ARK_SOURCE_DIR)",
+    ),
+    index_name: str = typer.Option(
+        ...,
+        "--index-name",
+        help="Named workspace index to create or rebuild",
+    ),
+    backend: IndexBackendOption | None = typer.Option(
+        None,
+        "--backend",
+        help="Index backend (default: from config, usually simple)",
+    ),
+    chunk_size: int = typer.Option(1000, "--chunk-size", min=1),
+    chunk_overlap: int = typer.Option(200, "--chunk-overlap", min=0),
+    force: bool = typer.Option(False, "--force", help="Rebuild an existing named index"),
+) -> None:
+    """Ingest a server-side text file or directory into a named workspace index."""
+    settings = ark_config.get_settings()
+    resolved_backend = backend.value if backend is not None else None
+    try:
+        result = workspace_ingest.ingest_source_path_to_workspace_index(
+            source,
+            index_name,
+            settings.source_dir,
+            settings.workspace_dir,
+            backend=resolved_backend,
+            config_backend=settings.index_backend,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            force=force,
+        )
+    except IndexErrorBase as exc:
+        _handle_index_errors(exc)
+    except ValueError as exc:
+        _handle_index_errors(exc)
+    except FileNotFoundError as exc:
+        _handle_index_errors(exc)
+    except FileExistsError as exc:
+        _handle_index_errors(exc)
+
+    table = Table(title="Workspace Path Ingest Summary")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+    table.add_row("index_name", result.index_name)
+    table.add_row("index_slug", result.index_slug)
+    table.add_row("source_path", str(result.source_path))
+    table.add_row("backend", result.backend)
+    table.add_row("sources", str(result.source_count))
+    table.add_row("chunks", str(result.chunk_count))
+    table.add_row("chunks_path", str(result.chunks_path))
+    table.add_row("index_dir", str(result.index_dir))
+    table.add_row("catalog_updated", str(result.catalog_updated))
     console.print(table)
 
 

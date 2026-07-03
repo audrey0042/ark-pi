@@ -27,6 +27,9 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert 'id="question"' in html
     assert "/api/ask" in html
     assert "/api/ingest/text" in html
+    assert "Add local file" in html
+    assert "/api/ingest/path" in html
+    assert 'id="path-ingest-form"' in html
     assert "include_context" in html
     assert "include_prompt" in html
 

@@ -27,6 +27,21 @@ def load_sources(input_path: Path) -> list[SourceRecord]:
     raise ValueError(msg)
 
 
+def load_txt_sources(input_path: Path) -> list[SourceRecord]:
+    path = input_path.expanduser().resolve()
+    if not path.exists():
+        msg = f"Source path does not exist: {input_path}"
+        raise FileNotFoundError(msg)
+
+    if path.is_dir():
+        return _load_directory(path)
+    if path.suffix == ".txt":
+        return _load_txt_file(path)
+
+    msg = "Only .txt files and directories are supported for this endpoint."
+    raise ValueError(msg)
+
+
 def _load_directory(directory: Path) -> list[SourceRecord]:
     txt_files = sorted(directory.glob("*.txt"))
     if not txt_files:

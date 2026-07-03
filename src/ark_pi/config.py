@@ -23,6 +23,7 @@ class ArkSettings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     data_dir: Path = Path("./data")
+    source_dir: Path = Path("./data/sources")
     workspace_dir: Path = Path("./data/workspace")
     index_dir: Path = Path("./indexes")
     index_backend: IndexBackend = "simple"
@@ -82,6 +83,7 @@ def role_paths(settings: ArkSettings) -> dict[str, Path | str]:
         case "rag":
             return {
                 "data_dir": settings.data_dir,
+                "source_dir": settings.source_dir,
                 "workspace_dir": settings.workspace_dir,
                 "index_dir": settings.index_dir,
                 "chroma_dir": settings.chroma_dir,
@@ -95,6 +97,7 @@ def role_paths(settings: ArkSettings) -> dict[str, Path | str]:
         case "dev":
             return {
                 "data_dir": settings.data_dir,
+                "source_dir": settings.source_dir,
                 "workspace_dir": settings.workspace_dir,
                 "index_dir": settings.index_dir,
                 "chroma_dir": settings.chroma_dir,
