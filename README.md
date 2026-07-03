@@ -204,6 +204,18 @@ ark workspace import --archive /tmp/sample-only.zip --force
 
 Import validates archive structure, prevents path traversal, remaps catalog paths to the current `ARK_WORKSPACE_DIR`, and merges imported indexes with the existing catalog. Use `--force` to replace indexes that already exist. Browser upload size is limited by `ARK_MAX_IMPORT_BYTES` (default 50 MiB).
 
+### LLM diagnostics
+
+Check which LLM backend ark-rag is configured to use and run an explicit diagnostic test. Passive status does **not** contact the LLM server.
+
+```bash
+ark llm status
+ark llm test --llm-backend mock
+ark llm test --llm-backend openai-compatible --llm-base-url http://192.168.50.2:8080
+```
+
+The web UI **LLM diagnostics** panel calls `GET /api/llm/status` on load and `POST /api/llm/test` only when you click **Test LLM**. For production, point `ARK_LLM_BACKEND=openai-compatible` and `ARK_LLM_BASE_URL` at the ark-llm llama.cpp server.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.

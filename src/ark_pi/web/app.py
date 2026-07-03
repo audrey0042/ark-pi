@@ -5,6 +5,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ark_pi import config as ark_config
 from ark_pi.ingest import pipeline as ingest_pipeline
+from ark_pi.llm_client import diagnostics as llm_diagnostics
+from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.workspace import catalog as workspace_catalog
@@ -23,6 +25,9 @@ from ark_pi.web.schemas import (
     IndexStatsResponse,
     LocalPathIngestRequest,
     LocalPathIngestResponse,
+    LlmPassiveStatusResponse,
+    LlmTestRequest,
+    LlmTestResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -52,6 +57,40 @@ def create_app() -> FastAPI:
     def api_status() -> StatusResponse:
         payload = ark_config.api_status_payload()
         return StatusResponse(**payload)
+
+    @app.get("/api/llm/status", response_model=LlmPassiveStatusResponse)
+    def api_llm_status() -> LlmPassiveStatusResponse:
+        status = llm_diagnostics.llm_passive_status(ark_config.get_settings())
+        return LlmPassiveStatusResponse(
+            backend=status.backend,
+            model=status.model,
+            base_url_configured=status.base_url_configured,
+            base_url_display=status.base_url_display,
+            timeout_seconds=status.timeout_seconds,
+            max_tokens=status.max_tokens,
+            temperature=status.temperature,
+            network_check_performed=status.network_check_performed,
+            message=status.message,
+        )
+
+    @app.post("/api/llm/test", response_model=LlmTestResponse)
+    def api_llm_test(request: LlmTestRequest) -> LlmTestResponse:
+        prompt = request.prompt or DEFAULT_DIAGNOSTIC_PROMPT
+        backend = request.backend.value if request.backend is not None else None
+        result = llm_diagnostics.run_llm_active_test(
+            prompt=prompt,
+            backend=backend,
+            base_url=request.base_url,
+        )
+        return LlmTestResponse(
+            backend=result.backend,
+            model=result.model,
+            ok=result.ok,
+            output_text=result.output_text,
+            latency_ms=result.latency_ms,
+            error=result.error,
+            message=result.message,
+        )
 
     @app.get("/api/indexes", response_model=IndexCatalogListResponse)
     def api_list_indexes() -> IndexCatalogListResponse:

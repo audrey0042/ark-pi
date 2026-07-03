@@ -5,6 +5,8 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ark_pi.llm_client.diagnostics import llm_passive_status
+
 Role = Literal["rag", "llm", "dev"]
 IndexBackend = Literal["simple", "chroma"]
 LlmBackend = Literal["mock", "openai-compatible"]
@@ -71,11 +73,23 @@ def settings_for_display(settings: ArkSettings) -> dict[str, Any]:
 
 def api_status_payload() -> dict[str, Any]:
     settings = get_settings()
+    passive = llm_passive_status(settings)
     return {
         "service": "ark-pi",
         "role": settings.role,
         "paths": {key: str(value) for key, value in role_paths(settings).items()},
         "config": settings_for_display(settings),
+        "llm": {
+            "backend": passive.backend,
+            "model": passive.model,
+            "base_url_configured": passive.base_url_configured,
+            "base_url_display": passive.base_url_display,
+            "timeout_seconds": passive.timeout_seconds,
+            "max_tokens": passive.max_tokens,
+            "temperature": passive.temperature,
+            "network_check_performed": passive.network_check_performed,
+            "message": passive.message,
+        },
     }
 
 

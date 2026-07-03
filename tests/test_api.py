@@ -56,6 +56,8 @@ def test_api_status_does_not_probe_paths_or_network(client: TestClient) -> None:
     assert "paths" in data
     assert "config" in data
     assert "llm_backend" in data["config"]
+    assert "llm" in data
+    assert data["llm"]["network_check_performed"] is False
 
 
 def test_api_search_happy_path(client: TestClient, tmp_path: Path) -> None:
