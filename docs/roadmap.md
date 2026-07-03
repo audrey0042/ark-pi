@@ -98,15 +98,25 @@ Terminal parity for workspace indexes: `ark workspace list`, `show`, and `delete
 
 **Status: done**
 
-## 18. WiFi AP and systemd deployment
+## 18. Workspace export
+
+Local backup of workspace catalog and named indexes to a zip archive. `ark workspace export`, `POST /api/workspace/export`, and web UI **Export workspace** panel. Stdlib `zipfile` only; paths derived from workspace layout. Import/restore deferred.
+
+**Status: done**
+
+## 19. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 19. SimpleWiki ingest
+## 20. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 20. Backup / export / import strategy
+## 21. Workspace import / restore
+
+Restore workspace indexes from export archives. Complements slice 18 export.
+
+## 22. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

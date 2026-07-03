@@ -234,3 +234,33 @@ class DeleteIndexResponse(BaseModel):
     slug: str
     deleted: bool
     message: str
+
+
+class WorkspaceExportRequest(BaseModel):
+    output_path: str
+    slug: str | None = None
+    force: bool = False
+
+    @field_validator("output_path")
+    @classmethod
+    def strip_and_validate_output_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "output_path must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+    @field_validator("slug")
+    @classmethod
+    def strip_slug(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class WorkspaceExportResponse(BaseModel):
+    output_path: str
+    index_count: int
+    archive_size_bytes: int
+    message: str

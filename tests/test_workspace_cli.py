@@ -232,3 +232,64 @@ def test_workspace_delete_help() -> None:
     assert result.exit_code == 0
     assert "--slug" in result.stdout
     assert "--yes" in result.stdout
+
+
+def test_workspace_export_help() -> None:
+    result = runner.invoke(app, ["workspace", "export", "--help"])
+    assert result.exit_code == 0
+    assert "--output" in result.stdout
+    assert "--slug" in result.stdout
+    assert "--force" in result.stdout
+
+
+def test_workspace_export_all_happy_path(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    output = tmp_path / "export-all.zip"
+
+    result = runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(output)],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert result.exit_code == 0
+    assert output.is_file()
+    assert "index_count" in result.stdout
+
+
+def test_workspace_export_one_slug_happy_path(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    slug = _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    output = tmp_path / "export-one.zip"
+
+    result = runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(output), "--slug", slug],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert result.exit_code == 0
+    assert output.is_file()
+
+
+def test_workspace_export_existing_without_force_exits_nonzero(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    output = tmp_path / "export.zip"
+    output.write_text("existing", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(output)],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert result.exit_code != 0
+    assert "already exists" in result.stderr or "already exists" in result.stdout

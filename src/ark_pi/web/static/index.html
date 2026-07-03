@@ -128,6 +128,22 @@
       margin-bottom: 1rem;
     }
     #delete-success-box strong { display: block; margin-bottom: 0.25rem; }
+    #export-error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #export-error-box strong { display: block; margin-bottom: 0.25rem; }
+    #export-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #export-success-box strong { display: block; margin-bottom: 0.25rem; }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -393,6 +409,45 @@
         <pre id="prompt-text"></pre>
       </section>
     </div>
+    </section>
+
+    <section class="panel" aria-labelledby="export-heading">
+      <h2 id="export-heading">Export workspace</h2>
+      <p class="hint">
+        Write a zip archive on this machine containing the workspace catalog and index data.
+        Import/restore is not implemented yet.
+      </p>
+      <form id="export-form">
+        <label for="export-output-path">Output path</label>
+        <input type="text" id="export-output-path" name="output_path" value="/tmp/ark-workspace-export.zip" required>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="export-selected-only" name="export_selected_only">
+          <label for="export-selected-only">Export selected index only</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="export-force" name="force">
+          <label for="export-force">Force overwrite (replace existing archive)</label>
+        </div>
+
+        <button type="submit" id="export-button">Export</button>
+      </form>
+
+      <div class="output">
+        <section id="export-error-section" class="hidden" aria-live="polite">
+          <div id="export-error-box">
+            <strong>Error:</strong>
+            <span id="export-error-text"></span>
+          </div>
+        </section>
+        <section id="export-success-section" class="hidden" aria-live="polite">
+          <div id="export-success-box">
+            <strong>Success:</strong>
+            <span id="export-success-text"></span>
+          </div>
+        </section>
+      </div>
     </section>
   </div>
 
@@ -863,6 +918,65 @@
           .finally(function () {
             askButton.disabled = false;
             askButton.textContent = "Ask";
+          });
+      });
+
+      var exportForm = document.getElementById("export-form");
+      var exportButton = document.getElementById("export-button");
+      var exportErrorSection = document.getElementById("export-error-section");
+      var exportErrorText = document.getElementById("export-error-text");
+      var exportSuccessSection = document.getElementById("export-success-section");
+      var exportSuccessText = document.getElementById("export-success-text");
+
+      function hideExportOutput() {
+        exportErrorSection.classList.add("hidden");
+        exportSuccessSection.classList.add("hidden");
+        exportErrorText.textContent = "";
+        exportSuccessText.textContent = "";
+      }
+
+      exportForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hideExportOutput();
+        exportButton.disabled = true;
+        exportButton.textContent = "Exporting…";
+
+        var payload = {
+          output_path: document.getElementById("export-output-path").value.trim(),
+          force: document.getElementById("export-force").checked
+        };
+        if (document.getElementById("export-selected-only").checked) {
+          var selectedSlug = indexSelect.value;
+          if (!selectedSlug) {
+            exportErrorText.textContent = "Select an index first, or uncheck export selected index only.";
+            exportErrorSection.classList.remove("hidden");
+            exportButton.disabled = false;
+            exportButton.textContent = "Export";
+            return;
+          }
+          payload.slug = selectedSlug;
+        }
+
+        fetchJson("/api/workspace/export", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              exportErrorText.textContent = parseApiError(result);
+              exportErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            exportSuccessText.textContent = data.message || (
+              "Exported " + data.index_count + " index(es) to " + data.output_path + "."
+            );
+            exportSuccessSection.classList.remove("hidden");
+          })
+          .catch(function (err) {
+            exportErrorText.textContent = err.message || "Network error";
+            exportErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            exportButton.disabled = false;
+            exportButton.textContent = "Export";
           });
       });
     })();

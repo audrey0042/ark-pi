@@ -15,6 +15,7 @@ from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.rag.index import IndexErrorBase
 from ark_pi.workspace import catalog as workspace_catalog
+from ark_pi.workspace import export as workspace_export
 from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.workspace.catalog import WorkspaceError, WorkspaceIndexNotFoundError
 
@@ -259,6 +260,44 @@ def workspace_delete(
     table.add_column("Value")
     table.add_row("slug", result.slug)
     table.add_row("deleted", str(result.deleted))
+    table.add_row("message", result.message)
+    console.print(table)
+
+
+@workspace_app.command("export")
+def workspace_export_cmd(
+    output_path: Path = typer.Option(
+        ...,
+        "--output",
+        help="Output zip archive path",
+    ),
+    slug: str | None = typer.Option(
+        None,
+        "--slug",
+        help="Export only this workspace index slug",
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing archive"),
+) -> None:
+    """Export workspace catalog and indexes to a zip archive."""
+    settings = ark_config.get_settings()
+    try:
+        result = workspace_export.export_workspace(
+            settings.workspace_dir,
+            output_path,
+            slug=slug,
+            force=force,
+        )
+    except WorkspaceIndexNotFoundError as exc:
+        _handle_workspace_errors(exc)
+    except workspace_export.WorkspaceExportError as exc:
+        _handle_workspace_errors(exc)
+
+    table = Table(title="Workspace Export Summary")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("output_path", str(result.output_path))
+    table.add_row("index_count", str(result.index_count))
+    table.add_row("archive_size_bytes", str(result.archive_size_bytes))
     table.add_row("message", result.message)
     console.print(table)
 
