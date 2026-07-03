@@ -266,6 +266,18 @@ class WorkspaceExportResponse(BaseModel):
     message: str
 
 
+class WorkspaceExportDownloadRequest(BaseModel):
+    slug: str | None = None
+
+    @field_validator("slug")
+    @classmethod
+    def strip_slug(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
 class WorkspaceImportRequest(BaseModel):
     archive_path: str
     force: bool = False

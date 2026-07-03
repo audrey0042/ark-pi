@@ -104,21 +104,27 @@ Local backup of workspace catalog and named indexes to a zip archive. `ark works
 
 **Status: done**
 
-## 19. WiFi AP and systemd deployment
+## 19. Browser workspace export download
+
+Download workspace export zips directly in the browser. `POST /api/workspace/export/download` returns an in-memory zip; web UI **Download export** button. Reuses existing export validation and archive-building logic. Server-side path export unchanged.
+
+**Status: done**
+
+## 20. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 20. SimpleWiki ingest
+## 21. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 21. Workspace import / restore
+## 22. Workspace import / restore
 
 Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, and web UI **Import workspace** panel. Server-side zip path only; validates archive structure, remaps catalog paths, merges with existing catalog. Browser zip upload deferred.
 
 **Status: done**
 
-## 22. Backup / export / import strategy
+## 23. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

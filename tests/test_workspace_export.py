@@ -1,3 +1,4 @@
+import io
 import json
 import zipfile
 from pathlib import Path
@@ -8,7 +9,12 @@ from ark_pi.config import clear_settings_cache
 from ark_pi.workspace import catalog as workspace_catalog
 from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.workspace.catalog import WorkspaceIndexNotFoundError
-from ark_pi.workspace.export import WorkspaceExportError, export_workspace
+from ark_pi.workspace.export import (
+    WorkspaceExportError,
+    export_workspace,
+    export_workspace_to_bytes,
+    write_workspace_export_zip,
+)
 from ark_pi.workspace.paths import index_root_dir
 
 SAMPLE_TEXT = "Ark Pi workspace export test content for indexing."
@@ -180,3 +186,58 @@ def test_export_ignores_catalog_paths_outside_workspace(
         assert not any("outside" in name for name in archive.namelist())
 
     assert index_root_dir(workspace_dir, slug).is_dir()
+
+
+def test_export_to_bytes_includes_catalog_and_manifest(workspace_dir: Path) -> None:
+    slug = _create_index(workspace_dir, index_name="sample")
+    data, info = export_workspace_to_bytes(workspace_dir)
+
+    assert info.index_count == 1
+    assert info.exported_slugs == [slug]
+    assert info.archive_size_bytes == len(data)
+    assert len(data) > 0
+
+    with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+        names = set(archive.namelist())
+        assert "catalog.json" in names
+        assert "export_manifest.json" in names
+        catalog = json.loads(archive.read("catalog.json"))
+        assert catalog["indexes"][0]["slug"] == slug
+
+
+def test_export_to_bytes_includes_index_files(workspace_dir: Path) -> None:
+    slug = _create_index(workspace_dir, index_name="sample")
+    data, _info = export_workspace_to_bytes(workspace_dir)
+
+    with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+        assert f"indexes/{slug}/chunks.jsonl" in archive.namelist()
+        assert f"indexes/{slug}/index/manifest.json" in archive.namelist()
+
+
+def test_export_to_bytes_single_slug_includes_only_that_index(
+    workspace_dir: Path,
+) -> None:
+    slug_a = _create_index(workspace_dir, index_name="alpha", text="Alpha export content.")
+    _create_index(workspace_dir, index_name="beta", text="Beta export content.")
+
+    data, info = export_workspace_to_bytes(workspace_dir, slug=slug_a)
+
+    assert info.index_count == 1
+    assert info.exported_slugs == [slug_a]
+    with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+        catalog = json.loads(archive.read("catalog.json"))
+        assert len(catalog["indexes"]) == 1
+        names = archive.namelist()
+        assert any(name.startswith(f"indexes/{slug_a}/") for name in names)
+        assert not any(name.startswith("indexes/beta/") for name in names)
+
+
+def test_write_workspace_export_zip_to_bytesio(workspace_dir: Path) -> None:
+    _create_index(workspace_dir, index_name="sample")
+    buffer = io.BytesIO()
+    info = write_workspace_export_zip(workspace_dir, buffer)
+
+    assert info.index_count == 1
+    buffer.seek(0)
+    with zipfile.ZipFile(buffer, "r") as archive:
+        assert "catalog.json" in archive.namelist()

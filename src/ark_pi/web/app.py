@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ark_pi import config as ark_config
 from ark_pi.ingest import pipeline as ingest_pipeline
@@ -28,6 +28,7 @@ from ark_pi.web.schemas import (
     StatusResponse,
     TextIngestRequest,
     TextIngestResponse,
+    WorkspaceExportDownloadRequest,
     WorkspaceExportRequest,
     WorkspaceExportResponse,
     WorkspaceImportRequest,
@@ -277,6 +278,22 @@ def create_app() -> FastAPI:
             index_count=result.index_count,
             archive_size_bytes=result.archive_size_bytes,
             message=result.message,
+        )
+
+    @app.post("/api/workspace/export/download")
+    def api_workspace_export_download(
+        request: WorkspaceExportDownloadRequest,
+    ) -> Response:
+        settings = ark_config.get_settings()
+        data, _info = workspace_export.export_workspace_to_bytes(
+            settings.workspace_dir,
+            slug=request.slug,
+        )
+        filename = workspace_export.export_download_filename(request.slug)
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @app.post("/api/workspace/import", response_model=WorkspaceImportResponse)
