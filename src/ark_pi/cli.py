@@ -3,11 +3,13 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from ark_pi import __version__
 from ark_pi import config as ark_config
 from ark_pi.ingest import chunking, sources as ingest_sources
+from ark_pi.rag import dev_answer, prompting
 from ark_pi.rag import index as rag_index
 
 app = typer.Typer(name="ark", help="Ark Pi — offline/local RAG appliance")
@@ -206,6 +208,69 @@ def index_search(
             _truncate_snippet(result.text),
         )
     console.print(table)
+
+
+@app.command("ask")
+def ask(
+    index_dir: Path = typer.Option(
+        ...,
+        "--index-dir",
+        help="Path to a built index directory",
+        exists=False,
+    ),
+    question: str = typer.Option(..., "--question", help="Question to ask the local index"),
+    limit: int = typer.Option(5, "--limit", min=1),
+    show_context: bool = typer.Option(False, "--show-context", help="Show retrieved context chunks"),
+    show_prompt: bool = typer.Option(False, "--show-prompt", help="Show the assembled RAG prompt"),
+) -> None:
+    """Search the local index, assemble a prompt, and return a dev/mock answer."""
+    stripped_question = question.strip()
+    if not stripped_question:
+        typer.echo("Question must not be empty.", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        results = rag_index.search_index(index_dir, stripped_question, limit=limit)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except FileNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not results:
+        console.print("No relevant context found.")
+        return
+
+    prompt = prompting.build_rag_prompt(stripped_question, results)
+    answer = dev_answer.make_dev_answer(stripped_question, results, prompt)
+
+    console.print(f"Question: {stripped_question}")
+    console.print()
+    console.print(answer)
+    console.print()
+    console.print(f"Retrieved chunks: {len(results)}")
+
+    if show_context:
+        table = Table(title=f"Retrieved Context ({len(results)})")
+        table.add_column("Rank", style="bold")
+        table.add_column("Score")
+        table.add_column("Title")
+        table.add_column("Chunk ID")
+        table.add_column("Snippet")
+
+        for rank, result in enumerate(results, start=1):
+            table.add_row(
+                str(rank),
+                f"{result.score:.2f}",
+                result.title,
+                result.id,
+                _truncate_snippet(result.text),
+            )
+        console.print(table)
+
+    if show_prompt:
+        console.print(Panel(prompt, title="Assembled Prompt", expand=False))
 
 
 def main() -> None:
