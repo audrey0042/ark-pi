@@ -9,6 +9,7 @@ from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.workspace import catalog as workspace_catalog
 from ark_pi.workspace import export as workspace_export
+from ark_pi.workspace import importer as workspace_importer
 from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.web.errors import register_exception_handlers, search_results_to_items
 from ark_pi.web.schemas import (
@@ -29,6 +30,8 @@ from ark_pi.web.schemas import (
     TextIngestResponse,
     WorkspaceExportRequest,
     WorkspaceExportResponse,
+    WorkspaceImportRequest,
+    WorkspaceImportResponse,
 )
 from ark_pi.web.ui import index_response
 
@@ -273,6 +276,21 @@ def create_app() -> FastAPI:
             output_path=str(result.output_path),
             index_count=result.index_count,
             archive_size_bytes=result.archive_size_bytes,
+            message=result.message,
+        )
+
+    @app.post("/api/workspace/import", response_model=WorkspaceImportResponse)
+    def api_workspace_import(request: WorkspaceImportRequest) -> WorkspaceImportResponse:
+        settings = ark_config.get_settings()
+        result = workspace_importer.import_workspace(
+            settings.workspace_dir,
+            Path(request.archive_path),
+            force=request.force,
+        )
+        return WorkspaceImportResponse(
+            archive_path=str(result.archive_path),
+            imported_count=result.imported_count,
+            imported_slugs=result.imported_slugs,
             message=result.message,
         )
 

@@ -191,7 +191,18 @@ ark workspace export --output /tmp/ark-workspace-export.zip
 ark workspace export --output /tmp/sample-only.zip --slug sample
 ```
 
-Export writes a local zip on the machine running ark-rag (catalog, index data, and `export_manifest.json`). Import/restore is future work.
+Export writes a local zip on the machine running ark-rag (catalog, index data, and `export_manifest.json`).
+
+### Workspace import
+
+Import restores an Ark Pi workspace export zip from a **server-side path** on the machine running ark-rag. Browser zip upload is future work.
+
+```bash
+ark workspace import --archive /tmp/ark-workspace-export.zip
+ark workspace import --archive /tmp/sample-only.zip --force
+```
+
+Import validates archive structure, prevents path traversal, remaps catalog paths to the current `ARK_WORKSPACE_DIR`, and merges imported indexes with the existing catalog. Use `--force` to replace indexes that already exist.
 
 ## What is intentionally local-only right now
 

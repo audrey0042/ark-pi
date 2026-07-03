@@ -100,7 +100,7 @@ Terminal parity for workspace indexes: `ark workspace list`, `show`, and `delete
 
 ## 18. Workspace export
 
-Local backup of workspace catalog and named indexes to a zip archive. `ark workspace export`, `POST /api/workspace/export`, and web UI **Export workspace** panel. Stdlib `zipfile` only; paths derived from workspace layout. Import/restore deferred.
+Local backup of workspace catalog and named indexes to a zip archive. `ark workspace export`, `POST /api/workspace/export`, and web UI **Export workspace** panel. Stdlib `zipfile` only; paths derived from workspace layout.
 
 **Status: done**
 
@@ -114,7 +114,9 @@ Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out 
 
 ## 21. Workspace import / restore
 
-Restore workspace indexes from export archives. Complements slice 18 export.
+Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, and web UI **Import workspace** panel. Server-side zip path only; validates archive structure, remaps catalog paths, merges with existing catalog. Browser zip upload deferred.
+
+**Status: done**
 
 ## 22. Backup / export / import strategy
 

@@ -277,6 +277,87 @@ def test_workspace_export_one_slug_happy_path(
     assert output.is_file()
 
 
+def test_workspace_import_help() -> None:
+    result = runner.invoke(app, ["workspace", "import", "--help"])
+    assert result.exit_code == 0
+    assert "--archive" in result.stdout
+    assert "--force" in result.stdout
+
+
+def test_workspace_import_happy_path(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    archive = tmp_path / "export.zip"
+    export_result = runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(archive)],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert export_result.exit_code == 0
+
+    import_target = tmp_path / "import-workspace"
+    clear_settings_cache()
+    import_result = runner.invoke(
+        app,
+        ["workspace", "import", "--archive", str(archive)],
+        env={
+            "ARK_WORKSPACE_DIR": str(import_target),
+            "ARK_SOURCE_DIR": str(source_dir),
+        },
+    )
+    clear_settings_cache()
+    assert import_result.exit_code == 0, import_result.stdout + import_result.stderr
+    assert "imported_count" in import_result.stdout
+    assert "local-sample" in import_result.stdout
+
+
+def test_workspace_import_conflict_without_force_exits_nonzero(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    archive = tmp_path / "export.zip"
+    runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(archive)],
+        env=_env(workspace_dir, source_dir),
+    )
+
+    result = runner.invoke(
+        app,
+        ["workspace", "import", "--archive", str(archive)],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert result.exit_code != 0
+    assert "already exists" in result.stderr or "already exists" in result.stdout
+
+
+def test_workspace_import_conflict_with_force_succeeds(
+    workspace_env: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    workspace_dir, source_dir = workspace_env
+    _ingest_sample(workspace_dir, source_dir, index_name="local-sample")
+    archive = tmp_path / "export.zip"
+    runner.invoke(
+        app,
+        ["workspace", "export", "--output", str(archive)],
+        env=_env(workspace_dir, source_dir),
+    )
+
+    result = runner.invoke(
+        app,
+        ["workspace", "import", "--archive", str(archive), "--force"],
+        env=_env(workspace_dir, source_dir),
+    )
+    assert result.exit_code == 0
+    assert "imported_count" in result.stdout
+
+
 def test_workspace_export_existing_without_force_exits_nonzero(
     workspace_env: tuple[Path, Path],
     tmp_path: Path,

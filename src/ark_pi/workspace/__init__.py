@@ -11,6 +11,7 @@ from ark_pi.workspace.catalog import (
     upsert_index,
 )
 from ark_pi.workspace.export import ExportResult, WorkspaceExportError, export_workspace
+from ark_pi.workspace.importer import ImportResult, WorkspaceImportError, import_workspace
 from ark_pi.workspace.ingest import (
     WorkspaceIngestResult,
     WorkspacePathIngestResult,
@@ -34,13 +35,16 @@ __all__ = [
     "CatalogIndexEntry",
     "DeleteIndexResult",
     "ExportResult",
+    "ImportResult",
     "WorkspaceError",
     "WorkspaceExportError",
+    "WorkspaceImportError",
     "WorkspaceIndexNotFoundError",
     "WorkspaceIngestResult",
     "WorkspacePathIngestResult",
     "delete_index",
     "export_workspace",
+    "import_workspace",
     "ensure_path_inside_workspace",
     "get_index",
     "index_paths",
