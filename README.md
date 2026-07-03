@@ -18,7 +18,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 - Simple lexical index build and search (`ark index`)
 - RAG prompt assembly and `ark ask`
 - Local FastAPI RAG API (`ark serve`)
-- Minimal built-in web UI at `/` (paste text, build index, ask)
+- Minimal built-in web UI at `/` (named workspace indexes, paste text, ask)
 - Mock LLM backend for end-to-end wiring checks
 - Project config, CLI, tests, and docs
 
@@ -120,17 +120,20 @@ Use the index path from the RAG loop smoke test above, or build your own with `a
 
 With the server running (`ark serve --host 127.0.0.1 --port 8000`), open [http://127.0.0.1:8000/](http://127.0.0.1:8000/) in a browser.
 
-**Paste and build:** use the **Add text** panel to paste document text, then click **Build index** (defaults write to `/tmp/ark_chunks.jsonl` and `/tmp/ark_index`). The ask form's index path updates automatically on success.
+**Paste and build:** use the **Add text** panel — set index name `sample`, paste document text, click **Build index**. Indexes live under `./data/workspace` by default (`ARK_WORKSPACE_DIR`).
 
-**Ask:** enter a question and click **Ask**. The page calls local API endpoints only — no file uploads, external assets, or build step.
+**Ask:** pick an index from the dropdown and click **Ask**. No filesystem paths required for normal use.
 
-Or ingest via curl:
+Or ingest via curl (workspace mode):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/ingest/text \
   -H 'Content-Type: application/json' \
-  -d '{"title":"sample","text":"The RAG Pi owns prompt assembly.","chunks_path":"/tmp/ark_chunks.jsonl","index_dir":"/tmp/ark_index","force":true}'
+  -d '{"title":"sample","text":"The RAG Pi owns prompt assembly.","index_name":"sample","use_workspace":true,"force":true}'
+curl http://127.0.0.1:8000/api/indexes
 ```
+
+Raw path ingest remains available for dev: `"use_workspace": false` with explicit `chunks_path` and `index_dir`.
 
 ## What is intentionally local-only right now
 

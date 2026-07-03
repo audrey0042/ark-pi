@@ -7,11 +7,16 @@ from ark_pi import config as ark_config
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
+from ark_pi.workspace import catalog as workspace_catalog
+from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.web.errors import register_exception_handlers, search_results_to_items
 from ark_pi.web.schemas import (
     AskRequest,
     HealthResponse,
     IndexBackendOption,
+    IndexCatalogDetailResponse,
+    IndexCatalogItem,
+    IndexCatalogListResponse,
     IndexStatsResponse,
     SearchRequest,
     SearchResponse,
@@ -36,6 +41,46 @@ def create_app() -> FastAPI:
     def api_status() -> StatusResponse:
         payload = ark_config.api_status_payload()
         return StatusResponse(**payload)
+
+    @app.get("/api/indexes", response_model=IndexCatalogListResponse)
+    def api_list_indexes() -> IndexCatalogListResponse:
+        settings = ark_config.get_settings()
+        entries = workspace_catalog.list_indexes(settings.workspace_dir)
+        return IndexCatalogListResponse(
+            indexes=[
+                IndexCatalogItem(
+                    name=entry.name,
+                    slug=entry.slug,
+                    backend=entry.backend,
+                    chunk_count=entry.chunk_count,
+                    source_count=entry.source_count,
+                    updated_at=entry.updated_at,
+                    index_dir=entry.index_dir,
+                )
+                for entry in entries
+            ]
+        )
+
+    @app.get("/api/indexes/{slug}", response_model=IndexCatalogDetailResponse)
+    def api_get_index(slug: str) -> IndexCatalogDetailResponse | JSONResponse:
+        settings = ark_config.get_settings()
+        entry = workspace_catalog.get_index(settings.workspace_dir, slug)
+        if entry is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "not_found", "detail": f"Index not found: {slug}"},
+            )
+        return IndexCatalogDetailResponse(
+            name=entry.name,
+            slug=entry.slug,
+            backend=entry.backend,
+            chunks_path=entry.chunks_path,
+            index_dir=entry.index_dir,
+            chunk_count=entry.chunk_count,
+            source_count=entry.source_count,
+            created_at=entry.created_at,
+            updated_at=entry.updated_at,
+        )
 
     @app.get("/api/index/stats", response_model=IndexStatsResponse)
     def api_index_stats(
@@ -101,11 +146,50 @@ def create_app() -> FastAPI:
     def api_ingest_text(request: TextIngestRequest) -> TextIngestResponse:
         settings = ark_config.get_settings()
         resolved_backend = request.backend.value if request.backend is not None else None
+
+        if request.use_workspace:
+            index_name = request.index_name
+            if index_name is None:
+                msg = "index_name is required when use_workspace is true"
+                raise ValueError(msg)
+            result = workspace_ingest.ingest_text_to_workspace_index(
+                request.title,
+                request.text,
+                index_name,
+                settings.workspace_dir,
+                backend=resolved_backend,
+                config_backend=settings.index_backend,
+                chunk_size=request.chunk_size,
+                chunk_overlap=request.chunk_overlap,
+                force=request.force,
+            )
+            message = (
+                f"Built {result.backend} index {result.index_name!r} with "
+                f"{result.chunk_count} chunk(s) from {result.source_count} source"
+            )
+            return TextIngestResponse(
+                title=result.title,
+                chunks_path=str(result.chunks_path),
+                index_dir=str(result.index_dir),
+                backend=result.backend,
+                chunk_count=result.chunk_count,
+                source_count=result.source_count,
+                message=message,
+                index_name=result.index_name,
+                index_slug=result.index_slug,
+                catalog_updated=result.catalog_updated,
+            )
+
+        chunks_path = request.chunks_path
+        index_dir = request.index_dir
+        if chunks_path is None or index_dir is None:
+            msg = "chunks_path and index_dir are required when use_workspace is false"
+            raise ValueError(msg)
         result = ingest_pipeline.ingest_text_to_index(
             request.title,
             request.text,
-            Path(request.chunks_path),
-            Path(request.index_dir),
+            Path(chunks_path),
+            Path(index_dir),
             backend=resolved_backend,
             config_backend=settings.index_backend,
             chunk_size=request.chunk_size,
@@ -124,6 +208,7 @@ def create_app() -> FastAPI:
             chunk_count=result.chunk_count,
             source_count=result.source_count,
             message=message,
+            catalog_updated=False,
         )
 
     @app.get("/", include_in_schema=False)

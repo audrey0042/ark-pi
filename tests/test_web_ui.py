@@ -20,14 +20,15 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert response.status_code == 200
     html = response.text
     assert "Ark Pi" in html
-    assert 'id="index-dir"' in html
+    assert 'id="index-name"' in html
+    assert 'id="index-select"' in html
+    assert 'id="refresh-indexes"' in html
+    assert "/api/indexes" in html
     assert 'id="question"' in html
     assert "/api/ask" in html
+    assert "/api/ingest/text" in html
     assert "include_context" in html
     assert "include_prompt" in html
-    assert "Add text" in html
-    assert 'id="ingest-form"' in html
-    assert "/api/ingest/text" in html
 
 
 def test_get_ui_returns_same_html_as_root(client: TestClient) -> None:

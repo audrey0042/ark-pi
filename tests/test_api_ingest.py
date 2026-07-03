@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_pi.web.app import create_app
+from ark_pi.config import clear_settings_cache
 
 SAMPLE_TEXT = (
     "Ark Pi splits work across two Raspberry Pis. "
@@ -23,6 +24,7 @@ def _ingest_payload(tmp_path: Path, **overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "title": "Ark Pi overview",
         "text": SAMPLE_TEXT,
+        "use_workspace": False,
         "chunks_path": str(tmp_path / "chunks.jsonl"),
         "index_dir": str(tmp_path / "index"),
     }
@@ -161,3 +163,28 @@ def test_ingest_text_chroma_without_chromadb(
     data = response.json()
     assert data["error"] == "index_error"
     assert "pip install -e '.[chroma]'" in data["detail"]
+
+
+def test_ingest_text_workspace_mode_happy_path(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ws = tmp_path / "workspace"
+    monkeypatch.setenv("ARK_WORKSPACE_DIR", str(ws))
+    clear_settings_cache()
+    response = client.post(
+        "/api/ingest/text",
+        json={
+            "title": "Overview",
+            "text": SAMPLE_TEXT,
+            "index_name": "sample",
+            "use_workspace": True,
+        },
+    )
+    clear_settings_cache()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["index_slug"] == "sample"
+    assert data["catalog_updated"] is True
+    assert (ws / "catalog.json").is_file()

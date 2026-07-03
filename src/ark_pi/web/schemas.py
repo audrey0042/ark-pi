@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class IndexBackendOption(str, Enum):
@@ -103,8 +103,10 @@ class ErrorResponse(BaseModel):
 class TextIngestRequest(BaseModel):
     title: str
     text: str
-    chunks_path: str = Field(min_length=1)
-    index_dir: str = Field(min_length=1)
+    index_name: str | None = None
+    use_workspace: bool = True
+    chunks_path: str | None = None
+    index_dir: str | None = None
     backend: IndexBackendOption | None = None
     chunk_size: int = Field(default=1000, gt=0)
     chunk_overlap: int = Field(default=200, ge=0)
@@ -128,6 +130,26 @@ class TextIngestRequest(BaseModel):
             raise ValueError(msg)
         return stripped
 
+    @field_validator("index_name")
+    @classmethod
+    def strip_index_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def validate_path_mode(self) -> Self:
+        if self.use_workspace:
+            if not self.index_name:
+                msg = "index_name is required when use_workspace is true"
+                raise ValueError(msg)
+        else:
+            if not self.chunks_path or not self.index_dir:
+                msg = "chunks_path and index_dir are required when use_workspace is false"
+                raise ValueError(msg)
+        return self
+
 
 class TextIngestResponse(BaseModel):
     title: str
@@ -137,3 +159,32 @@ class TextIngestResponse(BaseModel):
     chunk_count: int
     source_count: int
     message: str
+    index_name: str | None = None
+    index_slug: str | None = None
+    catalog_updated: bool = False
+
+
+class IndexCatalogItem(BaseModel):
+    name: str
+    slug: str
+    backend: str
+    chunk_count: int
+    source_count: int
+    updated_at: str
+    index_dir: str
+
+
+class IndexCatalogListResponse(BaseModel):
+    indexes: list[IndexCatalogItem]
+
+
+class IndexCatalogDetailResponse(BaseModel):
+    name: str
+    slug: str
+    backend: str
+    chunks_path: str
+    index_dir: str
+    chunk_count: int
+    source_count: int
+    created_at: str
+    updated_at: str
