@@ -17,7 +17,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Project status
 
-**Initial scaffold plus local document chunking.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, documentation, and smoke tests. Chroma indexing, retrieval, web UI, llama.cpp integration, and Pi deployment are not implemented yet.
+**Initial scaffold plus local chunking, lexical index/search, RAG prompt assembly, and a mock LLM client boundary.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, simple retrieval, prompt assembly, and mock LLM responses, plus documentation and smoke tests. Chroma semantic indexing, retrieval API, web UI, llama.cpp deployment, and Pi deployment are not implemented yet.
 
 ## Local laptop development
 
@@ -56,6 +56,50 @@ Supported inputs: a single `.txt` file, a directory of `.txt` files, or a `.json
 Options: `--chunk-size` (default 1000), `--chunk-overlap` (default 200), `--force` to overwrite an existing output file.
 
 Generated `.jsonl` chunk files are runtime artifacts and must not be committed (already excluded via `.gitignore`).
+
+## Local indexing and search
+
+Build a simple lexical index from chunk JSONL and search it offline:
+
+```bash
+ark ingest chunk --input samples/docs --output /tmp/ark_chunks.jsonl --force
+ark index build --chunks /tmp/ark_chunks.jsonl --index-dir /tmp/ark_index --force
+ark index stats --index-dir /tmp/ark_index
+ark index search --index-dir /tmp/ark_index --query "offline rag" --limit 3
+```
+
+The current `simple` backend uses deterministic token overlap scoring — not semantic vector search. It validates the retrieval flow on a laptop without Chroma, embeddings, or model files. Semantic search with Chroma comes later.
+
+Generated indexes under `indexes/` or `/tmp/` are runtime artifacts and must not be committed.
+
+## LLM client boundary / Mock LLM backend
+
+`ark ask` searches the local index, assembles a RAG prompt, and calls the configured LLM client. By default it uses the **mock** backend — fully offline, no llama.cpp server or model files required:
+
+```bash
+ark ask --index-dir /tmp/ark_index --question "Which Pi owns generation?" --show-context
+ark ask --index-dir /tmp/ark_index --question "Which Pi owns prompt assembly?" --show-prompt
+```
+
+The mock backend returns a deterministic response that confirms retrieval, prompt assembly, and client wiring are connected. It does not pretend to be real intelligence.
+
+Test the client boundary directly:
+
+```bash
+ark llm mock --prompt "hello"
+```
+
+Future opt-in HTTP example (not required for local tests — needs a running llama.cpp OpenAI-compatible server on ark-llm):
+
+```bash
+ark ask \
+  --index-dir /tmp/ark_index \
+  --question "Which Pi owns generation?" \
+  --llm-backend openai-compatible \
+  --llm-base-url http://192.168.50.2:8080
+```
+
+Configure defaults via `.env` (`ARK_LLM_BACKEND=mock` for local dev). See `.env.example`.
 
 ## What belongs in git
 

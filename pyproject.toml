@@ -15,6 +15,7 @@ dependencies = [
     "rich",
     "fastapi",
     "uvicorn",
+    "httpx",
 ]
 
 [project.optional-dependencies]
