@@ -17,7 +17,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Project status
 
-**Initial scaffold plus local document chunking.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking, documentation, and smoke tests. Chroma indexing, retrieval, web UI, llama.cpp integration, and Pi deployment are not implemented yet.
+**Initial scaffold plus local document chunking and lexical index/search.** This repo is not a finished appliance. It provides project structure, configuration, a CLI with offline chunking and a simple local retrieval backend, documentation, and smoke tests. Chroma semantic indexing, retrieval API, web UI, llama.cpp integration, and Pi deployment are not implemented yet.
 
 ## Local laptop development
 
@@ -56,6 +56,21 @@ Supported inputs: a single `.txt` file, a directory of `.txt` files, or a `.json
 Options: `--chunk-size` (default 1000), `--chunk-overlap` (default 200), `--force` to overwrite an existing output file.
 
 Generated `.jsonl` chunk files are runtime artifacts and must not be committed (already excluded via `.gitignore`).
+
+## Local indexing and search
+
+Build a simple lexical index from chunk JSONL and search it offline:
+
+```bash
+ark ingest chunk --input samples/docs --output /tmp/ark_chunks.jsonl --force
+ark index build --chunks /tmp/ark_chunks.jsonl --index-dir /tmp/ark_index --force
+ark index stats --index-dir /tmp/ark_index
+ark index search --index-dir /tmp/ark_index --query "offline rag" --limit 3
+```
+
+The current `simple` backend uses deterministic token overlap scoring — not semantic vector search. It validates the retrieval flow on a laptop without Chroma, embeddings, or model files. Semantic search with Chroma comes later.
+
+Generated indexes under `indexes/` or `/tmp/` are runtime artifacts and must not be committed.
 
 ## What belongs in git
 

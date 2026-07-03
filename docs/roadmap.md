@@ -14,31 +14,37 @@ Project structure, pydantic-settings config layer, minimal Typer CLI (`ark versi
 
 **Status: done**
 
-## 3. Chroma indexing
+## 3. Local index abstraction / simple retrieval
+
+`ark index build|search|stats` with a pure-Python lexical `simple` backend. Index interface boundary in `ark_pi.rag` so Chroma can plug in later.
+
+**Status: done**
+
+## 4. Chroma indexing
 
 Embed chunks and write to Chroma. Rebuild index from source on demand.
 
-## 4. Retrieval API
+## 5. Retrieval API
 
 FastAPI endpoints for semantic search over the local index. Return ranked chunks with scores.
 
-## 5. llama.cpp server integration
+## 6. llama.cpp server integration
 
 HTTP client from ark-rag to ark-llm. Send assembled prompts, receive completions. ark-llm runs llama.cpp only.
 
-## 6. Minimal web UI
+## 7. Minimal web UI
 
 Simple dashboard on ark-rag: ask a question, show retrieved context and answer.
 
-## 7. WiFi AP and systemd deployment
+## 8. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 8. SimpleWiki ingest
+## 9. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 9. Backup / export / import strategy
+## 10. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 
@@ -46,4 +52,4 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 ## Future idea: dev lab (not planned yet)
 
-Two simulated nodes — containerized ark-rag and ark-llm — for laptop integration testing. The ark-llm container could initially serve a mock OpenAI-compatible endpoint. Real llama.cpp inference remains out of scope until stage 5.
+Two simulated nodes — containerized ark-rag and ark-llm — for laptop integration testing. The ark-llm container could initially serve a mock OpenAI-compatible endpoint. Real llama.cpp inference remains out of scope until stage 6.
