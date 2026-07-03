@@ -176,6 +176,16 @@ Only plain `.txt` / `text/plain` files are supported. PDF, DOCX, HTML, and Markd
 
 Named workspace indexes can be deleted from the web UI (**Delete selected index**) or via `DELETE /api/indexes/{slug}`. Deletion removes the index directory under `ARK_WORKSPACE_DIR/indexes/<slug>/` and updates `catalog.json`. Deletes are constrained to the configured workspace — they never touch `source_dir` or paths outside the workspace.
 
+### Workspace CLI
+
+```bash
+ark workspace list
+ark workspace show --slug local-sample
+ark workspace delete --slug local-sample --yes
+```
+
+`ark workspace delete` requires `--yes` to confirm. `ark workspace ingest-path` continues to build indexes from server-side files under `ARK_SOURCE_DIR`.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.
