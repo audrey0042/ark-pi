@@ -415,7 +415,6 @@
       <h2 id="export-heading">Export workspace</h2>
       <p class="hint">
         Write a zip archive on this machine containing the workspace catalog and index data.
-        Import/restore is not implemented yet.
       </p>
       <form id="export-form">
         <label for="export-output-path">Output path</label>
@@ -445,6 +444,40 @@
           <div id="export-success-box">
             <strong>Success:</strong>
             <span id="export-success-text"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="import-workspace-heading">
+      <h2 id="import-workspace-heading">Import workspace</h2>
+      <p class="hint">
+        Restore a workspace export zip from a path on this machine (server-side import).
+        Browser zip upload is not supported yet.
+      </p>
+      <form id="import-workspace-form">
+        <label for="import-archive-path">Archive path</label>
+        <input type="text" id="import-archive-path" name="archive_path" value="/tmp/ark-workspace-export.zip" required>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="import-force" name="force">
+          <label for="import-force">Force overwrite matching indexes</label>
+        </div>
+
+        <button type="submit" id="import-workspace-button">Import</button>
+      </form>
+
+      <div class="output">
+        <section id="import-workspace-error-section" class="hidden" aria-live="polite">
+          <div id="import-workspace-error-box">
+            <strong>Error:</strong>
+            <span id="import-workspace-error-text"></span>
+          </div>
+        </section>
+        <section id="import-workspace-success-section" class="hidden" aria-live="polite">
+          <div id="import-workspace-success-box">
+            <strong>Success:</strong>
+            <span id="import-workspace-success-text"></span>
           </div>
         </section>
       </div>
@@ -977,6 +1010,59 @@
           .finally(function () {
             exportButton.disabled = false;
             exportButton.textContent = "Export";
+          });
+      });
+
+      var importWorkspaceForm = document.getElementById("import-workspace-form");
+      var importWorkspaceButton = document.getElementById("import-workspace-button");
+      var importWorkspaceErrorSection = document.getElementById("import-workspace-error-section");
+      var importWorkspaceErrorText = document.getElementById("import-workspace-error-text");
+      var importWorkspaceSuccessSection = document.getElementById("import-workspace-success-section");
+      var importWorkspaceSuccessText = document.getElementById("import-workspace-success-text");
+
+      function hideImportWorkspaceOutput() {
+        importWorkspaceErrorSection.classList.add("hidden");
+        importWorkspaceSuccessSection.classList.add("hidden");
+        importWorkspaceErrorText.textContent = "";
+        importWorkspaceSuccessText.textContent = "";
+      }
+
+      importWorkspaceForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hideImportWorkspaceOutput();
+        importWorkspaceButton.disabled = true;
+        importWorkspaceButton.textContent = "Importing…";
+
+        var payload = {
+          archive_path: document.getElementById("import-archive-path").value.trim(),
+          force: document.getElementById("import-force").checked
+        };
+
+        fetchJson("/api/workspace/import", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              importWorkspaceErrorText.textContent = parseApiError(result);
+              importWorkspaceErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            importWorkspaceSuccessText.textContent = data.message || (
+              "Imported " + data.imported_count + " index(es): " +
+              (data.imported_slugs || []).join(", ") + "."
+            );
+            importWorkspaceSuccessSection.classList.remove("hidden");
+            var firstImported = data.imported_slugs && data.imported_slugs.length
+              ? data.imported_slugs[0]
+              : undefined;
+            return loadIndexes(firstImported);
+          })
+          .catch(function (err) {
+            importWorkspaceErrorText.textContent = err.message || "Network error";
+            importWorkspaceErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            importWorkspaceButton.disabled = false;
+            importWorkspaceButton.textContent = "Import";
           });
       });
     })();

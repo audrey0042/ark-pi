@@ -264,3 +264,24 @@ class WorkspaceExportResponse(BaseModel):
     index_count: int
     archive_size_bytes: int
     message: str
+
+
+class WorkspaceImportRequest(BaseModel):
+    archive_path: str
+    force: bool = False
+
+    @field_validator("archive_path")
+    @classmethod
+    def strip_and_validate_archive_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "archive_path must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+
+class WorkspaceImportResponse(BaseModel):
+    archive_path: str
+    imported_count: int
+    imported_slugs: list[str]
+    message: str
