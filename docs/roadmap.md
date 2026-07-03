@@ -68,15 +68,21 @@ Browser and API path to paste plain text, write chunks JSONL, and build a local 
 
 **Status: done**
 
-## 13. WiFi AP and systemd deployment
+## 13. Workspace index catalog
+
+Named indexes under `workspace_dir` with local `catalog.json` metadata. `GET /api/indexes`, workspace-mode text ingest, and web UI index dropdown — no raw filesystem paths for normal use.
+
+**Status: done**
+
+## 14. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 14. SimpleWiki ingest
+## 15. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 15. Backup / export / import strategy
+## 16. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

@@ -65,7 +65,8 @@
       margin-bottom: 0.25rem;
     }
     input[type="text"],
-    textarea {
+    textarea,
+    select {
       width: 100%;
       padding: 0.5rem 0.75rem;
       border: 1px solid var(--border);
@@ -98,6 +99,18 @@
       background: var(--btn-disabled);
       cursor: not-allowed;
     }
+    button.secondary {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      font: inherit;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+    .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
     .output h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
@@ -160,21 +173,18 @@
     <section class="panel" aria-labelledby="ingest-heading">
       <h2 id="ingest-heading">Add text</h2>
       <form id="ingest-form">
+        <label for="index-name">Index name</label>
+        <input type="text" id="index-name" name="index_name" value="sample" required>
+
         <label for="doc-title">Document title</label>
         <input type="text" id="doc-title" name="title" value="sample" required>
 
         <label for="doc-text">Document text</label>
         <textarea id="doc-text" name="text" placeholder="Paste document text here…" required></textarea>
 
-        <label for="chunks-path">Chunks path</label>
-        <input type="text" id="chunks-path" name="chunks_path" value="/tmp/ark_chunks.jsonl" required>
-
-        <label for="ingest-index-dir">Index directory</label>
-        <input type="text" id="ingest-index-dir" name="index_dir" value="/tmp/ark_index" required>
-
         <div class="checkbox-row">
           <input type="checkbox" id="ingest-force" name="force">
-          <label for="ingest-force">Force rebuild (overwrite existing chunks/index)</label>
+          <label for="ingest-force">Force rebuild (overwrite existing index)</label>
         </div>
 
         <button type="submit" id="ingest-button">Build index</button>
@@ -199,8 +209,13 @@
     <section class="panel" aria-labelledby="ask-heading">
       <h2 id="ask-heading">Ask</h2>
     <form id="ask-form">
-      <label for="index-dir">Index directory</label>
-      <input type="text" id="index-dir" name="index_dir" value="/tmp/ark_index" required>
+      <label for="index-select">Index</label>
+      <select id="index-select" name="index_select" aria-describedby="index-hint">
+        <option value="">Loading indexes…</option>
+      </select>
+      <p id="index-hint" class="hint">No indexes yet — add text above to create one.</p>
+      <button type="button" id="refresh-indexes" class="secondary">Refresh indexes</button>
+      <input type="hidden" id="index-dir" name="index_dir" value="">
 
       <label for="question">Question</label>
       <textarea id="question" name="question" placeholder="Which Pi owns prompt assembly?" required></textarea>
@@ -271,6 +286,16 @@
         });
       }
 
+      function fetchGet(url) {
+        return fetch(url).then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          }).catch(function () {
+            return { ok: response.ok, status: response.status, data: null };
+          });
+        });
+      }
+
       var ingestForm = document.getElementById("ingest-form");
       var ingestButton = document.getElementById("ingest-button");
       var ingestErrorSection = document.getElementById("ingest-error-section");
@@ -278,6 +303,10 @@
       var ingestSuccessSection = document.getElementById("ingest-success-section");
       var ingestSuccessText = document.getElementById("ingest-success-text");
       var indexDirInput = document.getElementById("index-dir");
+      var indexSelect = document.getElementById("index-select");
+      var indexHint = document.getElementById("index-hint");
+      var refreshIndexesButton = document.getElementById("refresh-indexes");
+      var indexesCache = [];
 
       function hideIngestOutput() {
         ingestErrorSection.classList.add("hidden");
@@ -285,6 +314,55 @@
         ingestErrorText.textContent = "";
         ingestSuccessText.textContent = "";
       }
+
+      function populateIndexSelect(indexes, selectedSlug) {
+        indexesCache = indexes || [];
+        indexSelect.innerHTML = "";
+        if (!indexesCache.length) {
+          var emptyOption = document.createElement("option");
+          emptyOption.value = "";
+          emptyOption.textContent = "No indexes available";
+          indexSelect.appendChild(emptyOption);
+          indexDirInput.value = "";
+          indexHint.textContent = "No indexes yet — add text above to create one.";
+          return;
+        }
+        indexesCache.forEach(function (entry) {
+          var option = document.createElement("option");
+          option.value = entry.slug;
+          option.textContent = entry.name + " (" + entry.chunk_count + " chunks)";
+          option.dataset.indexDir = entry.index_dir;
+          indexSelect.appendChild(option);
+        });
+        indexHint.textContent = "Select an index to ask against.";
+        var slugToSelect = selectedSlug || indexesCache[0].slug;
+        indexSelect.value = slugToSelect;
+        var selected = indexesCache.find(function (entry) {
+          return entry.slug === slugToSelect;
+        }) || indexesCache[0];
+        indexDirInput.value = selected.index_dir;
+      }
+
+      function loadIndexes(selectedSlug) {
+        return fetchGet("/api/indexes").then(function (result) {
+          if (!result.ok || !result.data) {
+            indexHint.textContent = "Could not load indexes.";
+            return;
+          }
+          populateIndexSelect(result.data.indexes || [], selectedSlug);
+        });
+      }
+
+      refreshIndexesButton.addEventListener("click", function () {
+        loadIndexes(indexSelect.value || undefined);
+      });
+
+      indexSelect.addEventListener("change", function () {
+        var selected = indexesCache.find(function (entry) {
+          return entry.slug === indexSelect.value;
+        });
+        indexDirInput.value = selected ? selected.index_dir : "";
+      });
 
       ingestForm.addEventListener("submit", function (event) {
         event.preventDefault();
@@ -295,8 +373,8 @@
         var payload = {
           title: document.getElementById("doc-title").value.trim(),
           text: document.getElementById("doc-text").value.trim(),
-          chunks_path: document.getElementById("chunks-path").value.trim(),
-          index_dir: document.getElementById("ingest-index-dir").value.trim(),
+          index_name: document.getElementById("index-name").value.trim(),
+          use_workspace: true,
           force: document.getElementById("ingest-force").checked
         };
 
@@ -312,9 +390,7 @@
               "Built index with " + data.chunk_count + " chunk(s)."
             );
             ingestSuccessSection.classList.remove("hidden");
-            if (data.index_dir) {
-              indexDirInput.value = data.index_dir;
-            }
+            return loadIndexes(data.index_slug || data.index_name);
           })
           .catch(function (err) {
             ingestErrorText.textContent = err.message || "Network error";
@@ -325,6 +401,8 @@
             ingestButton.textContent = "Build index";
           });
       });
+
+      loadIndexes();
 
       var form = document.getElementById("ask-form");
       var askButton = document.getElementById("ask-button");
@@ -376,11 +454,16 @@
       form.addEventListener("submit", function (event) {
         event.preventDefault();
         hideOutput();
+        var indexDir = indexDirInput.value.trim();
+        if (!indexDir) {
+          showError("Select an index first, or build one using Add text.");
+          return;
+        }
         askButton.disabled = true;
         askButton.textContent = "Asking…";
 
         var payload = {
-          index_dir: document.getElementById("index-dir").value.trim(),
+          index_dir: indexDir,
           question: document.getElementById("question").value.trim(),
           include_context: document.getElementById("include-context").checked,
           include_prompt: document.getElementById("include-prompt").checked

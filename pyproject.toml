@@ -23,6 +23,7 @@ dev = [
     "pytest",
     "ruff",
     "mypy",
+    "httpx2",
 ]
 chroma = [
     "chromadb",

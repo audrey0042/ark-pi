@@ -69,13 +69,14 @@ The RAG API and built-in web UI live in `ark_pi.web`:
 ```
 Browser
   -> GET / or /ui  -> built-in HTML (inline CSS/JS, no CDN)
-  -> POST /api/ingest/text -> ingest_pipeline.ingest_text_to_index -> chunking + rag_index.build_index
+  -> GET /api/indexes -> workspace catalog (local catalog.json)
+  -> POST /api/ingest/text -> workspace ingest -> chunking + rag_index.build_index + catalog upsert
   -> POST /api/ask -> rag_ask.run_ask -> search + prompting + llm_client
   -> POST /api/search -> rag_index.search_index
   -> GET /api/status -> sanitized config (no network probes)
 ```
 
-The web UI is a thin client: it calls local API endpoints on the same host and does not duplicate RAG logic. **Web text ingest** accepts pasted plain text only — not file uploads, PDF/DOCX parsing, or OCR. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
+Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON metadata in `catalog.json` — not a remote database and not discovered by scanning arbitrary paths. The web UI is a thin client over these endpoints. **Web text ingest** accepts pasted plain text only — not file uploads, PDF/DOCX parsing, or OCR. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
 ## Local development
 

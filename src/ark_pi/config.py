@@ -23,6 +23,7 @@ class ArkSettings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     data_dir: Path = Path("./data")
+    workspace_dir: Path = Path("./data/workspace")
     index_dir: Path = Path("./indexes")
     index_backend: IndexBackend = "simple"
     # TODO: derive chroma_dir from index_dir when ARK_INDEX_DIR is overridden
@@ -81,6 +82,7 @@ def role_paths(settings: ArkSettings) -> dict[str, Path | str]:
         case "rag":
             return {
                 "data_dir": settings.data_dir,
+                "workspace_dir": settings.workspace_dir,
                 "index_dir": settings.index_dir,
                 "chroma_dir": settings.chroma_dir,
                 "llm_base_url": settings.llm_base_url,
@@ -93,6 +95,7 @@ def role_paths(settings: ArkSettings) -> dict[str, Path | str]:
         case "dev":
             return {
                 "data_dir": settings.data_dir,
+                "workspace_dir": settings.workspace_dir,
                 "index_dir": settings.index_dir,
                 "chroma_dir": settings.chroma_dir,
                 "model_dir": settings.model_dir,
