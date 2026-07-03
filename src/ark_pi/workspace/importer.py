@@ -1,9 +1,11 @@
+import io
 import json
 import re
 import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 from ark_pi.workspace.catalog import (
     CATALOG_SCHEMA_VERSION,
@@ -36,7 +38,7 @@ class WorkspaceImportError(WorkspaceError):
 
 @dataclass(frozen=True)
 class ImportResult:
-    archive_path: Path
+    archive_path: Path | None
     imported_count: int
     imported_slugs: list[str]
     message: str
@@ -263,6 +265,102 @@ def _extract_index_files(
         destination.write_bytes(archive.read(info.filename))
 
 
+def _build_import_message(imported_slugs: list[str], source_description: str) -> str:
+    count = len(imported_slugs)
+    if count == 1:
+        return (
+            f"Imported workspace index {imported_slugs[0]!r} from {source_description}."
+        )
+    return f"Imported {count} workspace index(es) from {source_description}."
+
+
+def _import_workspace_zipfile(
+    archive: zipfile.ZipFile,
+    workspace_dir: Path,
+    *,
+    force: bool,
+    source_description: str,
+) -> ImportResult:
+    archive_names = {_normalize_arcname(name) for name in archive.namelist()}
+
+    for info in archive.infolist():
+        if _is_symlink_entry(info):
+            msg = f"Archive contains symlink entry: {info.filename!r}"
+            raise WorkspaceImportError(msg)
+        _validate_arcname(info.filename)
+
+    _read_manifest(archive)
+    entries = _read_catalog_entries(archive)
+    imported_slugs = [entry.slug for entry in entries]
+    _validate_required_index_files(archive_names, set(imported_slugs))
+
+    conflicts = [slug for slug in imported_slugs if _slug_exists(workspace_dir, slug)]
+    if conflicts and not force:
+        slug_list = ", ".join(conflicts)
+        msg = (
+            f"Workspace index already exists: {slug_list}. "
+            "Use force to replace it."
+        )
+        raise WorkspaceImportError(msg)
+
+    if force:
+        for slug in imported_slugs:
+            if _slug_exists(workspace_dir, slug):
+                _remove_slug(workspace_dir, slug)
+
+    for entry in entries:
+        _extract_index_files(archive, workspace_dir, entry.slug)
+        upsert_index(workspace_dir, _remap_entry(entry, workspace_dir))
+
+    message = _build_import_message(imported_slugs, source_description)
+    return ImportResult(
+        archive_path=None,
+        imported_count=len(imported_slugs),
+        imported_slugs=imported_slugs,
+        message=message,
+    )
+
+
+def import_workspace_archive_fileobj(
+    workspace_dir: Path,
+    fileobj: BinaryIO,
+    *,
+    force: bool = False,
+    source_description: str = "uploaded archive",
+) -> ImportResult:
+    """Import workspace catalog and index data from a zip archive file object."""
+    try:
+        archive = zipfile.ZipFile(fileobj, mode="r")
+    except zipfile.BadZipFile as exc:
+        msg = "Archive is not a valid zip file."
+        raise WorkspaceImportError(msg) from exc
+
+    with archive:
+        return _import_workspace_zipfile(
+            archive,
+            workspace_dir,
+            force=force,
+            source_description=source_description,
+        )
+
+
+def import_workspace_archive_bytes(
+    workspace_dir: Path,
+    archive_bytes: bytes,
+    *,
+    force: bool = False,
+) -> ImportResult:
+    """Import workspace catalog and index data from an in-memory zip archive."""
+    if not archive_bytes:
+        msg = "Uploaded archive is empty."
+        raise WorkspaceImportError(msg)
+    return import_workspace_archive_fileobj(
+        workspace_dir,
+        io.BytesIO(archive_bytes),
+        force=force,
+    )
+
+
 def import_workspace(
     workspace_dir: Path,
     archive_path: Path,
@@ -275,57 +373,17 @@ def import_workspace(
         msg = f"Archive path does not exist: {resolved_archive}"
         raise WorkspaceImportError(msg)
 
-    try:
-        archive = zipfile.ZipFile(resolved_archive, mode="r")
-    except zipfile.BadZipFile as exc:
-        msg = f"Archive is not a valid zip file: {resolved_archive}"
-        raise WorkspaceImportError(msg) from exc
-
-    with archive:
-        archive_names = {_normalize_arcname(name) for name in archive.namelist()}
-
-        for info in archive.infolist():
-            if _is_symlink_entry(info):
-                msg = f"Archive contains symlink entry: {info.filename!r}"
-                raise WorkspaceImportError(msg)
-            _validate_arcname(info.filename)
-
-        _read_manifest(archive)
-        entries = _read_catalog_entries(archive)
-        imported_slugs = [entry.slug for entry in entries]
-        _validate_required_index_files(archive_names, set(imported_slugs))
-
-        conflicts = [slug for slug in imported_slugs if _slug_exists(workspace_dir, slug)]
-        if conflicts and not force:
-            slug_list = ", ".join(conflicts)
-            msg = (
-                f"Workspace index already exists: {slug_list}. "
-                "Use force to replace it."
-            )
-            raise WorkspaceImportError(msg)
-
-        if force:
-            for slug in imported_slugs:
-                if _slug_exists(workspace_dir, slug):
-                    _remove_slug(workspace_dir, slug)
-
-        for entry in entries:
-            _extract_index_files(archive, workspace_dir, entry.slug)
-            upsert_index(workspace_dir, _remap_entry(entry, workspace_dir))
-
-    count = len(imported_slugs)
-    if count == 1:
-        message = (
-            f"Imported workspace index {imported_slugs[0]!r} from {resolved_archive}."
-        )
-    else:
-        message = (
-            f"Imported {count} workspace index(es) from {resolved_archive}."
+    with resolved_archive.open("rb") as stream:
+        result = import_workspace_archive_fileobj(
+            workspace_dir,
+            stream,
+            force=force,
+            source_description=str(resolved_archive),
         )
 
     return ImportResult(
         archive_path=resolved_archive,
-        imported_count=count,
-        imported_slugs=imported_slugs,
-        message=message,
+        imported_count=result.imported_count,
+        imported_slugs=result.imported_slugs,
+        message=result.message,
     )

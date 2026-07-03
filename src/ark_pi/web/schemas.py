@@ -297,3 +297,9 @@ class WorkspaceImportResponse(BaseModel):
     imported_count: int
     imported_slugs: list[str]
     message: str
+
+
+class WorkspaceImportUploadResponse(BaseModel):
+    imported_count: int
+    imported_slugs: list[str]
+    message: str

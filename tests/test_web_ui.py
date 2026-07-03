@@ -49,6 +49,11 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "Import workspace" in html
     assert 'id="import-workspace-form"' in html
     assert "/api/workspace/import" in html
+    assert 'id="import-workspace-file"' in html
+    assert "Upload and import" in html
+    assert "/api/workspace/import/upload" in html
+    assert "application/zip" in html
+    assert "Import from path" in html
     assert "include_context" in html
     assert "include_prompt" in html
 

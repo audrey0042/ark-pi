@@ -19,7 +19,13 @@ from ark_pi.workspace.export import (
     export_workspace_to_bytes,
     write_workspace_export_zip,
 )
-from ark_pi.workspace.importer import ImportResult, WorkspaceImportError, import_workspace
+from ark_pi.workspace.importer import (
+    ImportResult,
+    WorkspaceImportError,
+    import_workspace,
+    import_workspace_archive_bytes,
+    import_workspace_archive_fileobj,
+)
 from ark_pi.workspace.ingest import (
     WorkspaceIngestResult,
     WorkspacePathIngestResult,
@@ -57,6 +63,8 @@ __all__ = [
     "export_workspace_to_bytes",
     "write_workspace_export_zip",
     "import_workspace",
+    "import_workspace_archive_bytes",
+    "import_workspace_archive_fileobj",
     "ensure_path_inside_workspace",
     "get_index",
     "index_paths",
