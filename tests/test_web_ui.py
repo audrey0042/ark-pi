@@ -25,6 +25,9 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "/api/ask" in html
     assert "include_context" in html
     assert "include_prompt" in html
+    assert "Add text" in html
+    assert 'id="ingest-form"' in html
+    assert "/api/ingest/text" in html
 
 
 def test_get_ui_returns_same_html_as_root(client: TestClient) -> None:

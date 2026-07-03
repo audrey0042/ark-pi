@@ -14,6 +14,9 @@
       --error-bg: #fff5f5;
       --error-border: #c0392b;
       --error-fg: #922b21;
+      --success-bg: #f0fdf4;
+      --success-border: #16a34a;
+      --success-fg: #14532d;
       --btn-bg: #2563eb;
       --btn-fg: #fff;
       --btn-disabled: #94a3b8;
@@ -27,6 +30,9 @@
         --error-bg: #2d1f1f;
         --error-border: #e74c3c;
         --error-fg: #f5b7b1;
+        --success-bg: #1a2e1a;
+        --success-border: #22c55e;
+        --success-fg: #bbf7d0;
         --btn-bg: #3b82f6;
         --btn-disabled: #475569;
       }
@@ -45,7 +51,14 @@
       margin: 0 auto;
     }
     h1 { margin-top: 0; font-size: 1.5rem; }
+    h2 { font-size: 1.15rem; margin: 0 0 0.75rem; }
     .intro { color: var(--muted); margin-bottom: 1.5rem; }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
     label {
       display: block;
       font-weight: 600;
@@ -97,6 +110,22 @@
       border-radius: 4px;
     }
     #error-box strong { display: block; margin-bottom: 0.25rem; }
+    #ingest-error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #ingest-error-box strong { display: block; margin-bottom: 0.25rem; }
+    #ingest-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #ingest-success-box strong { display: block; margin-bottom: 0.25rem; }
     .chunk {
       border: 1px solid var(--border);
       border-radius: 4px;
@@ -124,10 +153,51 @@
   <div class="container">
     <h1>Ark Pi</h1>
     <p class="intro">
-      Local development UI. Ask questions against a built index on this machine.
-      Uses the mock LLM backend by default — no cloud or external services.
+      Local development UI. Paste text to build an index, then ask questions
+      against it. Uses the mock LLM backend by default — no cloud or external services.
     </p>
 
+    <section class="panel" aria-labelledby="ingest-heading">
+      <h2 id="ingest-heading">Add text</h2>
+      <form id="ingest-form">
+        <label for="doc-title">Document title</label>
+        <input type="text" id="doc-title" name="title" value="sample" required>
+
+        <label for="doc-text">Document text</label>
+        <textarea id="doc-text" name="text" placeholder="Paste document text here…" required></textarea>
+
+        <label for="chunks-path">Chunks path</label>
+        <input type="text" id="chunks-path" name="chunks_path" value="/tmp/ark_chunks.jsonl" required>
+
+        <label for="ingest-index-dir">Index directory</label>
+        <input type="text" id="ingest-index-dir" name="index_dir" value="/tmp/ark_index" required>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="ingest-force" name="force">
+          <label for="ingest-force">Force rebuild (overwrite existing chunks/index)</label>
+        </div>
+
+        <button type="submit" id="ingest-button">Build index</button>
+      </form>
+
+      <div class="output">
+        <section id="ingest-error-section" class="hidden" aria-live="polite">
+          <div id="ingest-error-box">
+            <strong>Error:</strong>
+            <span id="ingest-error-text"></span>
+          </div>
+        </section>
+        <section id="ingest-success-section" class="hidden" aria-live="polite">
+          <div id="ingest-success-box">
+            <strong>Success:</strong>
+            <span id="ingest-success-text"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="ask-heading">
+      <h2 id="ask-heading">Ask</h2>
     <form id="ask-form">
       <label for="index-dir">Index directory</label>
       <input type="text" id="index-dir" name="index_dir" value="/tmp/ark_index" required>
@@ -171,10 +241,91 @@
         <pre id="prompt-text"></pre>
       </section>
     </div>
+    </section>
   </div>
 
   <script>
     (function () {
+      function parseApiError(result) {
+        var msg = "Request failed (" + result.status + ")";
+        if (result.data && result.data.detail) {
+          msg = result.data.detail;
+          if (result.data.error) {
+            msg = result.data.error + ": " + result.data.detail;
+          }
+        }
+        return msg;
+      }
+
+      function fetchJson(url, payload) {
+        return fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          }).catch(function () {
+            return { ok: response.ok, status: response.status, data: null };
+          });
+        });
+      }
+
+      var ingestForm = document.getElementById("ingest-form");
+      var ingestButton = document.getElementById("ingest-button");
+      var ingestErrorSection = document.getElementById("ingest-error-section");
+      var ingestErrorText = document.getElementById("ingest-error-text");
+      var ingestSuccessSection = document.getElementById("ingest-success-section");
+      var ingestSuccessText = document.getElementById("ingest-success-text");
+      var indexDirInput = document.getElementById("index-dir");
+
+      function hideIngestOutput() {
+        ingestErrorSection.classList.add("hidden");
+        ingestSuccessSection.classList.add("hidden");
+        ingestErrorText.textContent = "";
+        ingestSuccessText.textContent = "";
+      }
+
+      ingestForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hideIngestOutput();
+        ingestButton.disabled = true;
+        ingestButton.textContent = "Building…";
+
+        var payload = {
+          title: document.getElementById("doc-title").value.trim(),
+          text: document.getElementById("doc-text").value.trim(),
+          chunks_path: document.getElementById("chunks-path").value.trim(),
+          index_dir: document.getElementById("ingest-index-dir").value.trim(),
+          force: document.getElementById("ingest-force").checked
+        };
+
+        fetchJson("/api/ingest/text", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              ingestErrorText.textContent = parseApiError(result);
+              ingestErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            ingestSuccessText.textContent = data.message || (
+              "Built index with " + data.chunk_count + " chunk(s)."
+            );
+            ingestSuccessSection.classList.remove("hidden");
+            if (data.index_dir) {
+              indexDirInput.value = data.index_dir;
+            }
+          })
+          .catch(function (err) {
+            ingestErrorText.textContent = err.message || "Network error";
+            ingestErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            ingestButton.disabled = false;
+            ingestButton.textContent = "Build index";
+          });
+      });
+
       var form = document.getElementById("ask-form");
       var askButton = document.getElementById("ask-button");
       var errorSection = document.getElementById("error-section");
@@ -235,28 +386,10 @@
           include_prompt: document.getElementById("include-prompt").checked
         };
 
-        fetch("/api/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        })
-          .then(function (response) {
-            return response.json().then(function (data) {
-              return { ok: response.ok, status: response.status, data: data };
-            }).catch(function () {
-              return { ok: response.ok, status: response.status, data: null };
-            });
-          })
+        fetchJson("/api/ask", payload)
           .then(function (result) {
             if (!result.ok) {
-              var msg = "Request failed (" + result.status + ")";
-              if (result.data && result.data.detail) {
-                msg = result.data.detail;
-                if (result.data.error) {
-                  msg = result.data.error + ": " + result.data.detail;
-                }
-              }
-              showError(msg);
+              showError(parseApiError(result));
               return;
             }
             var data = result.data;

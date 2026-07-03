@@ -62,15 +62,21 @@ Built-in single-page HTML served at `GET /` and `GET /ui`. Calls local `POST /ap
 
 **Status: done**
 
-## 12. WiFi AP and systemd deployment
+## 12. Web text ingest
+
+Browser and API path to paste plain text, write chunks JSONL, and build a local index via `POST /api/ingest/text`. Reuses existing chunking and index facades. No file uploads or document parsers.
+
+**Status: done**
+
+## 13. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 13. SimpleWiki ingest
+## 14. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 14. Backup / export / import strategy
+## 15. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ark_pi import config as ark_config
+from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.web.errors import register_exception_handlers, search_results_to_items
@@ -15,6 +16,8 @@ from ark_pi.web.schemas import (
     SearchRequest,
     SearchResponse,
     StatusResponse,
+    TextIngestRequest,
+    TextIngestResponse,
 )
 from ark_pi.web.ui import index_response
 
@@ -93,6 +96,35 @@ def create_app() -> FastAPI:
             payload["prompt"] = result.prompt
 
         return JSONResponse(content=payload)
+
+    @app.post("/api/ingest/text", response_model=TextIngestResponse)
+    def api_ingest_text(request: TextIngestRequest) -> TextIngestResponse:
+        settings = ark_config.get_settings()
+        resolved_backend = request.backend.value if request.backend is not None else None
+        result = ingest_pipeline.ingest_text_to_index(
+            request.title,
+            request.text,
+            Path(request.chunks_path),
+            Path(request.index_dir),
+            backend=resolved_backend,
+            config_backend=settings.index_backend,
+            chunk_size=request.chunk_size,
+            chunk_overlap=request.chunk_overlap,
+            force=request.force,
+        )
+        message = (
+            f"Built {result.backend} index with {result.chunk_count} chunk(s) "
+            f"from {result.source_count} source at {result.index_dir}"
+        )
+        return TextIngestResponse(
+            title=result.title,
+            chunks_path=str(result.chunks_path),
+            index_dir=str(result.index_dir),
+            backend=result.backend,
+            chunk_count=result.chunk_count,
+            source_count=result.source_count,
+            message=message,
+        )
 
     @app.get("/", include_in_schema=False)
     @app.get("/ui", include_in_schema=False)

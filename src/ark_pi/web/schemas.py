@@ -98,3 +98,42 @@ class AskResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: str
+
+
+class TextIngestRequest(BaseModel):
+    title: str
+    text: str
+    chunks_path: str = Field(min_length=1)
+    index_dir: str = Field(min_length=1)
+    backend: IndexBackendOption | None = None
+    chunk_size: int = Field(default=1000, gt=0)
+    chunk_overlap: int = Field(default=200, ge=0)
+    force: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def strip_and_validate_title(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "title must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+    @field_validator("text")
+    @classmethod
+    def strip_and_validate_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "text must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+
+class TextIngestResponse(BaseModel):
+    title: str
+    chunks_path: str
+    index_dir: str
+    backend: str
+    chunk_count: int
+    source_count: int
+    message: str
