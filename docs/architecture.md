@@ -52,28 +52,29 @@ The LLM Pi is a dedicated inference worker. It receives a complete prompt and re
 ```
 Phone/Laptop
   -> WiFi AP on ark-rag
-  -> Web UI (future) or RAG API (FastAPI) on ark-rag
+  -> Web UI (GET /) or RAG API (FastAPI) on ark-rag
+  -> POST /api/ask -> run_ask on ark-rag
   -> Index search on ark-rag (simple lexical or optional Chroma)
-  -> Prompt assembly on ark-rag (run_ask)
+  -> Prompt assembly on ark-rag
   -> LLM client on ark-rag (mock locally; openai-compatible over Ethernet in production)
   -> llama.cpp server on ark-llm
   -> Response back to ark-rag
-  -> Answer shown in browser or API client
+  -> Answer shown in browser
 ```
 
 ## FastAPI layer (laptop dev)
 
-The RAG API lives in `ark_pi.web` and exposes read-only/local endpoints over the existing boundaries:
+The RAG API and built-in web UI live in `ark_pi.web`:
 
 ```
-Browser or curl
-  -> FastAPI (ark serve / uvicorn)
-  -> /api/search  -> rag_index.search_index
-  -> /api/ask     -> rag_ask.run_ask -> search + prompting + llm_client
-  -> /api/status  -> sanitized config (no network probes)
+Browser
+  -> GET / or /ui  -> built-in HTML (inline CSS/JS, no CDN)
+  -> POST /api/ask -> rag_ask.run_ask -> search + prompting + llm_client
+  -> POST /api/search -> rag_index.search_index
+  -> GET /api/status -> sanitized config (no network probes)
 ```
 
-A future minimal web UI (roadmap stage 11) will call these same endpoints on ark-rag. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
+The web UI is a thin client: it calls `/api/ask` on the same host and does not duplicate RAG logic. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
 ## Local development
 
