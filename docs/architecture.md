@@ -52,14 +52,28 @@ The LLM Pi is a dedicated inference worker. It receives a complete prompt and re
 ```
 Phone/Laptop
   -> WiFi AP on ark-rag
-  -> Web UI / RAG API on ark-rag
-  -> Chroma search on ark-rag
-  -> Prompt assembly on ark-rag
+  -> Web UI (future) or RAG API (FastAPI) on ark-rag
+  -> Index search on ark-rag (simple lexical or optional Chroma)
+  -> Prompt assembly on ark-rag (run_ask)
   -> LLM client on ark-rag (mock locally; openai-compatible over Ethernet in production)
   -> llama.cpp server on ark-llm
   -> Response back to ark-rag
-  -> Answer shown in browser
+  -> Answer shown in browser or API client
 ```
+
+## FastAPI layer (laptop dev)
+
+The RAG API lives in `ark_pi.web` and exposes read-only/local endpoints over the existing boundaries:
+
+```
+Browser or curl
+  -> FastAPI (ark serve / uvicorn)
+  -> /api/search  -> rag_index.search_index
+  -> /api/ask     -> rag_ask.run_ask -> search + prompting + llm_client
+  -> /api/status  -> sanitized config (no network probes)
+```
+
+A future minimal web UI (roadmap stage 11) will call these same endpoints on ark-rag. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
 ## Local development
 

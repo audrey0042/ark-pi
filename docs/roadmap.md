@@ -46,9 +46,11 @@ Choose and wire an embedding model for semantic indexing. Evaluate retrieval qua
 
 End-to-end semantic search, ranking evaluation, and tuning over Chroma-backed indexes.
 
-## 9. Retrieval API
+## 9. FastAPI RAG service
 
-FastAPI endpoints for semantic search over the local index. Return ranked chunks with scores.
+Local FastAPI endpoints for health, config-safe status, index stats, search, and ask over the existing index and LLM client boundaries. Mock LLM default; Chroma opt-in. Laptop-safe and fully testable with FastAPI TestClient.
+
+**Status: done**
 
 ## 10. llama.cpp server deployment
 
@@ -56,7 +58,9 @@ Deploy llama.cpp on ark-llm Pi. ark-rag uses the existing OpenAI-compatible clie
 
 ## 11. Minimal web UI
 
-Simple dashboard on ark-rag: ask a question, show retrieved context and answer.
+Simple dashboard on ark-rag: ask a question, show retrieved context and answer. Calls the FastAPI RAG API on ark-rag.
+
+**Status: not started**
 
 ## 12. WiFi AP and systemd deployment
 

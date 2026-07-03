@@ -66,6 +66,16 @@ def settings_for_display(settings: ArkSettings) -> dict[str, Any]:
     return data
 
 
+def api_status_payload() -> dict[str, Any]:
+    settings = get_settings()
+    return {
+        "service": "ark-pi",
+        "role": settings.role,
+        "paths": {key: str(value) for key, value in role_paths(settings).items()},
+        "config": settings_for_display(settings),
+    }
+
+
 def role_paths(settings: ArkSettings) -> dict[str, Path | str]:
     match settings.role:
         case "rag":

@@ -17,6 +17,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 - Document chunking (`ark ingest chunk`)
 - Simple lexical index build and search (`ark index`)
 - RAG prompt assembly and `ark ask`
+- Local FastAPI RAG API (`ark serve`)
 - Mock LLM backend for end-to-end wiring checks
 - Project config, CLI, tests, and docs
 
@@ -24,7 +25,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 
 - Semantic embeddings and real vector retrieval
 - Chroma storage on ark-rag in production
-- Web UI and RAG API
+- Web UI
 - WiFi access point setup
 - systemd deployment on both Pis
 - llama.cpp server deployment on ark-llm
@@ -40,7 +41,8 @@ Phone / laptop
       v
 ark-rag
   - WiFi access point
-  - web UI and RAG API (future)
+  - web UI (future)
+  - RAG API (FastAPI)
   - document ingestion
   - chunking and indexing
   - retrieval and prompt assembly
@@ -95,6 +97,25 @@ ark ask --index-dir /tmp/ark_index --question "Which Pi owns prompt assembly?"
 
 The mock backend confirms retrieval, prompt assembly, and LLM client wiring — it does not call a real model. Add `--show-context` or `--show-prompt` to inspect what `ark ask` assembled.
 
+## API smoke test
+
+Start the local API (mock LLM by default, no Chroma required):
+
+```bash
+ark serve --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"index_dir":"/tmp/ark_index","question":"Which Pi owns prompt assembly?"}'
+```
+
+Use the index path from the RAG loop smoke test above, or build your own with `ark index build`.
+
 ## What is intentionally local-only right now
 
 **Index backend:** The default `simple` backend uses deterministic token overlap scoring. It is good enough to exercise the retrieval pipeline on a laptop without embeddings or Chroma.
@@ -119,7 +140,7 @@ The repo is meant to be rebuildable from source. Indexes, chunks, logs, models, 
 
 ## Roadmap
 
-Next major areas: embedding model pipeline, semantic retrieval, FastAPI endpoints, llama.cpp on ark-llm, a minimal web UI, and production deployment on both Pis.
+Next major areas: embedding model pipeline, semantic retrieval, a minimal web UI, llama.cpp on ark-llm, and production deployment on both Pis.
 
 Full staged plan: [docs/roadmap.md](docs/roadmap.md)
 
