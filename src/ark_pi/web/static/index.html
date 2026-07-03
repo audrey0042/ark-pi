@@ -139,6 +139,22 @@
       border-radius: 4px;
     }
     #ingest-success-box strong { display: block; margin-bottom: 0.25rem; }
+    #path-ingest-error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #path-ingest-error-box strong { display: block; margin-bottom: 0.25rem; }
+    #path-ingest-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #path-ingest-success-box strong { display: block; margin-bottom: 0.25rem; }
     .chunk {
       border: 1px solid var(--border);
       border-radius: 4px;
@@ -166,8 +182,9 @@
   <div class="container">
     <h1>Ark Pi</h1>
     <p class="intro">
-      Local development UI. Paste text to build an index, then ask questions
-      against it. Uses the mock LLM backend by default — no cloud or external services.
+      Local development UI. Paste text or ingest a local file to build an index,
+      then ask questions against it. Uses the mock LLM backend by default —
+      no cloud or external services.
     </p>
 
     <section class="panel" aria-labelledby="ingest-heading">
@@ -206,6 +223,43 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="path-ingest-heading">
+      <h2 id="path-ingest-heading">Add local file</h2>
+      <p class="hint">
+        Files must already exist on this machine under the configured source directory.
+        Supports .txt files and directories of .txt files. Browser upload is not implemented yet.
+      </p>
+      <form id="path-ingest-form">
+        <label for="path-index-name">Index name</label>
+        <input type="text" id="path-index-name" name="index_name" value="local-sample" required>
+
+        <label for="source-path">Source path (relative to source directory)</label>
+        <input type="text" id="source-path" name="source_path" value="sample.txt" required>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="path-ingest-force" name="force">
+          <label for="path-ingest-force">Force rebuild (overwrite existing index)</label>
+        </div>
+
+        <button type="submit" id="path-ingest-button">Build from local file</button>
+      </form>
+
+      <div class="output">
+        <section id="path-ingest-error-section" class="hidden" aria-live="polite">
+          <div id="path-ingest-error-box">
+            <strong>Error:</strong>
+            <span id="path-ingest-error-text"></span>
+          </div>
+        </section>
+        <section id="path-ingest-success-section" class="hidden" aria-live="polite">
+          <div id="path-ingest-success-box">
+            <strong>Success:</strong>
+            <span id="path-ingest-success-text"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="ask-heading">
       <h2 id="ask-heading">Ask</h2>
     <form id="ask-form">
@@ -213,7 +267,7 @@
       <select id="index-select" name="index_select" aria-describedby="index-hint">
         <option value="">Loading indexes…</option>
       </select>
-      <p id="index-hint" class="hint">No indexes yet — add text above to create one.</p>
+      <p id="index-hint" class="hint">No indexes yet — add text or a local file above to create one.</p>
       <button type="button" id="refresh-indexes" class="secondary">Refresh indexes</button>
       <input type="hidden" id="index-dir" name="index_dir" value="">
 
@@ -324,7 +378,7 @@
           emptyOption.textContent = "No indexes available";
           indexSelect.appendChild(emptyOption);
           indexDirInput.value = "";
-          indexHint.textContent = "No indexes yet — add text above to create one.";
+          indexHint.textContent = "No indexes yet — add text or a local file above to create one.";
           return;
         }
         indexesCache.forEach(function (entry) {
@@ -402,6 +456,56 @@
           });
       });
 
+      var pathIngestForm = document.getElementById("path-ingest-form");
+      var pathIngestButton = document.getElementById("path-ingest-button");
+      var pathIngestErrorSection = document.getElementById("path-ingest-error-section");
+      var pathIngestErrorText = document.getElementById("path-ingest-error-text");
+      var pathIngestSuccessSection = document.getElementById("path-ingest-success-section");
+      var pathIngestSuccessText = document.getElementById("path-ingest-success-text");
+
+      function hidePathIngestOutput() {
+        pathIngestErrorSection.classList.add("hidden");
+        pathIngestSuccessSection.classList.add("hidden");
+        pathIngestErrorText.textContent = "";
+        pathIngestSuccessText.textContent = "";
+      }
+
+      pathIngestForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        hidePathIngestOutput();
+        pathIngestButton.disabled = true;
+        pathIngestButton.textContent = "Building…";
+
+        var pathPayload = {
+          index_name: document.getElementById("path-index-name").value.trim(),
+          source_path: document.getElementById("source-path").value.trim(),
+          force: document.getElementById("path-ingest-force").checked
+        };
+
+        fetchJson("/api/ingest/path", pathPayload)
+          .then(function (result) {
+            if (!result.ok) {
+              pathIngestErrorText.textContent = parseApiError(result);
+              pathIngestErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            pathIngestSuccessText.textContent = data.message || (
+              "Built index with " + data.chunk_count + " chunk(s)."
+            );
+            pathIngestSuccessSection.classList.remove("hidden");
+            return loadIndexes(data.index_slug || data.index_name);
+          })
+          .catch(function (err) {
+            pathIngestErrorText.textContent = err.message || "Network error";
+            pathIngestErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            pathIngestButton.disabled = false;
+            pathIngestButton.textContent = "Build from local file";
+          });
+      });
+
       loadIndexes();
 
       var form = document.getElementById("ask-form");
@@ -456,7 +560,7 @@
         hideOutput();
         var indexDir = indexDirInput.value.trim();
         if (!indexDir) {
-          showError("Select an index first, or build one using Add text.");
+          showError("Select an index first, or build one using Add text or Add local file.");
           return;
         }
         askButton.disabled = true;

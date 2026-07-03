@@ -52,3 +52,37 @@ def ensure_path_inside_workspace(workspace_dir: Path, path: Path) -> Path:
         msg = f"path escapes workspace: {path}"
         raise ValueError(msg) from exc
     return resolved
+
+
+def resolve_source_dir(source_dir: Path) -> Path:
+    return source_dir.expanduser().resolve()
+
+
+def resolve_source_path(source_dir: Path, source_path: str) -> Path:
+    stripped = source_path.strip()
+    if not stripped:
+        msg = "source path must not be empty"
+        raise ValueError(msg)
+
+    root = resolve_source_dir(source_dir)
+    raw = Path(stripped)
+    if raw.is_absolute():
+        candidate = raw.expanduser().resolve()
+    else:
+        candidate = (root / raw).resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        msg = "Source path must be inside configured source_dir."
+        raise ValueError(msg) from exc
+    return candidate
+
+
+def validate_txt_source_path(path: Path) -> None:
+    if path.is_dir():
+        return
+    if path.suffix == ".txt":
+        return
+    msg = "Only .txt files and directories are supported for this endpoint."
+    raise ValueError(msg)
