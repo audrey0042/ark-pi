@@ -116,21 +116,27 @@ Upload and restore workspace export zips directly from the browser. `POST /api/w
 
 **Status: done**
 
-## 21. WiFi AP and systemd deployment
+## 21. LLM backend diagnostics
+
+Passive LLM status and explicit diagnostic test across CLI (`ark llm status`, `ark llm test`), API (`GET /api/llm/status`, `POST /api/llm/test`), and web UI **LLM diagnostics** panel. Passive endpoints do not contact ark-llm; active test uses the existing LLM client boundary.
+
+**Status: done**
+
+## 22. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 22. SimpleWiki ingest
+## 23. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 23. Workspace import / restore
+## 24. Workspace import / restore
 
 Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, server-side path UI, and browser upload via `POST /api/workspace/import/upload`. Validates archive structure, remaps catalog paths, merges with existing catalog.
 
 **Status: done**
 
-## 24. Backup / export / import strategy
+## 25. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

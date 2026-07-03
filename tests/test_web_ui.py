@@ -54,6 +54,11 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "/api/workspace/import/upload" in html
     assert "application/zip" in html
     assert "Import from path" in html
+    assert "LLM diagnostics" in html
+    assert 'id="llm-diagnostics-heading"' in html
+    assert "/api/llm/status" in html
+    assert "/api/llm/test" in html
+    assert 'id="llm-test-button"' in html
     assert "include_context" in html
     assert "include_prompt" in html
 

@@ -11,6 +11,7 @@ from ark_pi import __version__
 from ark_pi import config as ark_config
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
+from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
 from ark_pi.rag.index import IndexErrorBase
@@ -48,6 +49,11 @@ def _handle_index_errors(exc: BaseException) -> None:
 
 
 def _handle_workspace_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _handle_llm_errors(exc: BaseException) -> None:
     typer.echo(str(exc), err=True)
     raise typer.Exit(code=1) from exc
 
@@ -598,6 +604,68 @@ def serve(
         host=host or settings.host,
         port=port or settings.port,
     )
+
+
+@llm_app.command("status")
+def llm_status_cmd() -> None:
+    """Show passive LLM configuration (no network call)."""
+    settings = ark_config.get_settings()
+    status = llm_passive_status(settings)
+
+    table = Table(title="LLM Status")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("backend", status.backend)
+    table.add_row("model", status.model)
+    table.add_row("base_url_configured", str(status.base_url_configured))
+    table.add_row("base_url_display", status.base_url_display or "")
+    table.add_row("timeout_seconds", str(status.timeout_seconds))
+    table.add_row("max_tokens", str(status.max_tokens))
+    table.add_row("temperature", str(status.temperature))
+    table.add_row("network_check_performed", str(status.network_check_performed))
+    table.add_row("message", status.message)
+    console.print(table)
+
+
+@llm_app.command("test")
+def llm_test_cmd(
+    prompt: str = typer.Option(
+        DEFAULT_DIAGNOSTIC_PROMPT,
+        "--prompt",
+        help="Diagnostic prompt to send",
+    ),
+    llm_backend: LlmBackendOption | None = typer.Option(
+        None,
+        "--llm-backend",
+        help="LLM backend to test (default: from config)",
+    ),
+    llm_base_url: str | None = typer.Option(
+        None,
+        "--llm-base-url",
+        help="Base URL for openai-compatible backend",
+    ),
+) -> None:
+    """Run an explicit LLM diagnostic test through the configured backend."""
+    resolved_backend = llm_backend.value if llm_backend is not None else None
+    try:
+        result = run_llm_active_test(
+            prompt=prompt,
+            backend=resolved_backend,
+            base_url=llm_base_url,
+        )
+    except LlmClientError as exc:
+        _handle_llm_errors(exc)
+
+    table = Table(title="LLM Test Result")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("backend", result.backend)
+    table.add_row("model", result.model)
+    table.add_row("ok", str(result.ok))
+    table.add_row("latency_ms", str(result.latency_ms))
+    table.add_row("output_text", result.output_text)
+    table.add_row("message", result.message)
+    console.print(table)
 
 
 @llm_app.command("mock")

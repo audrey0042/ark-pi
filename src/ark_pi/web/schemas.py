@@ -19,11 +19,56 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class LlmPassiveStatusResponse(BaseModel):
+    backend: str
+    model: str
+    base_url_configured: bool
+    base_url_display: str | None
+    timeout_seconds: float
+    max_tokens: int
+    temperature: float
+    network_check_performed: bool
+    message: str
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str
     paths: dict[str, str]
     config: dict[str, Any]
+    llm: LlmPassiveStatusResponse
+
+
+class LlmTestRequest(BaseModel):
+    prompt: str | None = None
+    backend: LlmBackendOption | None = None
+    base_url: str | None = None
+
+    @field_validator("prompt")
+    @classmethod
+    def strip_prompt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("base_url")
+    @classmethod
+    def strip_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class LlmTestResponse(BaseModel):
+    backend: str
+    model: str
+    ok: bool
+    output_text: str
+    latency_ms: int | None
+    error: str | None
+    message: str
 
 
 class IndexStatsResponse(BaseModel):

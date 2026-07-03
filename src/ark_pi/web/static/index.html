@@ -144,6 +144,47 @@
       border-radius: 4px;
     }
     #export-success-box strong { display: block; margin-bottom: 0.25rem; }
+    #llm-status-summary {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    #llm-status-summary dl { margin: 0; }
+    #llm-status-summary dt {
+      font-weight: 600;
+      display: inline;
+    }
+    #llm-status-summary dd {
+      display: inline;
+      margin: 0 0 0.35rem;
+    }
+    #llm-test-output {
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+    #llm-error-box {
+      border: 2px solid var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #llm-error-box strong { display: block; margin-bottom: 0.25rem; }
+    #llm-success-box {
+      border: 2px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success-fg);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+    #llm-success-box strong { display: block; margin-bottom: 0.25rem; }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -485,6 +526,40 @@
             <strong>Success:</strong>
             <span id="import-workspace-success-text"></span>
           </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="llm-diagnostics-heading">
+      <h2 id="llm-diagnostics-heading">LLM diagnostics</h2>
+      <p class="hint">
+        Passive status shows configured backend only. Test LLM sends an explicit diagnostic prompt.
+      </p>
+
+      <div id="llm-status-summary" aria-live="polite">
+        <p id="llm-status-loading">Loading LLM status…</p>
+      </div>
+
+      <button type="button" id="llm-refresh-status">Refresh LLM status</button>
+
+      <label for="llm-test-prompt">Diagnostic prompt</label>
+      <input type="text" id="llm-test-prompt" name="prompt" value="Reply with: ark-pi-ok">
+
+      <button type="button" id="llm-test-button">Test LLM</button>
+
+      <div class="output">
+        <section id="llm-error-section" class="hidden" aria-live="polite">
+          <div id="llm-error-box">
+            <strong>Error:</strong>
+            <span id="llm-error-text"></span>
+          </div>
+        </section>
+        <section id="llm-success-section" class="hidden" aria-live="polite">
+          <div id="llm-success-box">
+            <strong>Success:</strong>
+            <span id="llm-success-text"></span>
+          </div>
+          <pre id="llm-test-output"></pre>
         </section>
       </div>
     </section>
@@ -1198,6 +1273,96 @@
             importWorkspaceButton.textContent = "Import from path";
           });
       });
+
+      var llmStatusSummary = document.getElementById("llm-status-summary");
+      var llmStatusLoading = document.getElementById("llm-status-loading");
+      var llmRefreshStatusButton = document.getElementById("llm-refresh-status");
+      var llmTestButton = document.getElementById("llm-test-button");
+      var llmTestPrompt = document.getElementById("llm-test-prompt");
+      var llmErrorSection = document.getElementById("llm-error-section");
+      var llmErrorText = document.getElementById("llm-error-text");
+      var llmSuccessSection = document.getElementById("llm-success-section");
+      var llmSuccessText = document.getElementById("llm-success-text");
+      var llmTestOutput = document.getElementById("llm-test-output");
+
+      function hideLlmTestOutput() {
+        llmErrorSection.classList.add("hidden");
+        llmSuccessSection.classList.add("hidden");
+        llmErrorText.textContent = "";
+        llmSuccessText.textContent = "";
+        llmTestOutput.textContent = "";
+      }
+
+      function renderLlmStatus(status) {
+        llmStatusSummary.innerHTML = (
+          "<dl>" +
+          "<dt>Backend:</dt> <dd>" + status.backend + "</dd><br>" +
+          "<dt>Model:</dt> <dd>" + status.model + "</dd><br>" +
+          "<dt>Base URL configured:</dt> <dd>" + status.base_url_configured + "</dd><br>" +
+          "<dt>Base URL:</dt> <dd>" + (status.base_url_display || "—") + "</dd><br>" +
+          "<dt>Network check performed:</dt> <dd>" + status.network_check_performed + "</dd><br>" +
+          "<dt>Message:</dt> <dd>" + status.message + "</dd>" +
+          "</dl>"
+        );
+      }
+
+      function loadLlmStatus() {
+        if (llmStatusLoading) {
+          llmStatusLoading.textContent = "Loading LLM status…";
+        }
+        return fetchGet("/api/llm/status").then(function (result) {
+          if (!result.ok || !result.data) {
+            llmStatusSummary.textContent = "Could not load LLM status.";
+            return;
+          }
+          renderLlmStatus(result.data);
+        });
+      }
+
+      llmRefreshStatusButton.addEventListener("click", function () {
+        hideLlmTestOutput();
+        llmRefreshStatusButton.disabled = true;
+        llmRefreshStatusButton.textContent = "Refreshing…";
+        loadLlmStatus().finally(function () {
+          llmRefreshStatusButton.disabled = false;
+          llmRefreshStatusButton.textContent = "Refresh LLM status";
+        });
+      });
+
+      llmTestButton.addEventListener("click", function () {
+        hideLlmTestOutput();
+        llmTestButton.disabled = true;
+        llmTestButton.textContent = "Testing…";
+
+        var payload = {
+          prompt: llmTestPrompt.value.trim() || "Reply with: ark-pi-ok"
+        };
+
+        fetchJson("/api/llm/test", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              llmErrorText.textContent = parseApiError(result);
+              llmErrorSection.classList.remove("hidden");
+              return;
+            }
+            var data = result.data;
+            llmSuccessText.textContent = data.message || (
+              "LLM test ok (" + data.backend + ", " + data.latency_ms + " ms)."
+            );
+            llmTestOutput.textContent = data.output_text || "";
+            llmSuccessSection.classList.remove("hidden");
+          })
+          .catch(function (err) {
+            llmErrorText.textContent = err.message || "Network error";
+            llmErrorSection.classList.remove("hidden");
+          })
+          .finally(function () {
+            llmTestButton.disabled = false;
+            llmTestButton.textContent = "Test LLM";
+          });
+      });
+
+      loadLlmStatus();
     })();
   </script>
 </body>
