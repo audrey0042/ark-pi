@@ -110,21 +110,27 @@ Download workspace export zips directly in the browser. `POST /api/workspace/exp
 
 **Status: done**
 
-## 20. WiFi AP and systemd deployment
+## 20. Browser workspace import upload
 
-Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
-
-## 21. SimpleWiki ingest
-
-Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
-
-## 22. Workspace import / restore
-
-Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, and web UI **Import workspace** panel. Server-side zip path only; validates archive structure, remaps catalog paths, merges with existing catalog. Browser zip upload deferred.
+Upload and restore workspace export zips directly from the browser. `POST /api/workspace/import/upload` accepts raw `application/zip` (no multipart); web UI **Upload and import** button. Reuses safe importer validation; size limited by `ARK_MAX_IMPORT_BYTES` (default 50 MiB). Server-side path import unchanged.
 
 **Status: done**
 
-## 23. Backup / export / import strategy
+## 21. WiFi AP and systemd deployment
+
+Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
+
+## 22. SimpleWiki ingest
+
+Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
+
+## 23. Workspace import / restore
+
+Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, server-side path UI, and browser upload via `POST /api/workspace/import/upload`. Validates archive structure, remaps catalog paths, merges with existing catalog.
+
+**Status: done**
+
+## 24. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

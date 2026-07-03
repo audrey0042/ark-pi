@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ark_pi import config as ark_config
@@ -33,6 +33,7 @@ from ark_pi.web.schemas import (
     WorkspaceExportResponse,
     WorkspaceImportRequest,
     WorkspaceImportResponse,
+    WorkspaceImportUploadResponse,
 )
 from ark_pi.web.ui import index_response
 
@@ -306,6 +307,43 @@ def create_app() -> FastAPI:
         )
         return WorkspaceImportResponse(
             archive_path=str(result.archive_path),
+            imported_count=result.imported_count,
+            imported_slugs=result.imported_slugs,
+            message=result.message,
+        )
+
+    @app.post("/api/workspace/import/upload", response_model=WorkspaceImportUploadResponse)
+    async def api_workspace_import_upload(
+        request: Request,
+        force: bool = Query(False),
+    ) -> WorkspaceImportUploadResponse | JSONResponse:
+        settings = ark_config.get_settings()
+        body = await request.body()
+        if not body:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "workspace_error",
+                    "detail": "Uploaded archive is empty.",
+                },
+            )
+        if len(body) > settings.max_import_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "error": "payload_too_large",
+                    "detail": (
+                        f"Uploaded archive exceeds maximum size of "
+                        f"{settings.max_import_bytes} bytes."
+                    ),
+                },
+            )
+        result = workspace_importer.import_workspace_archive_bytes(
+            settings.workspace_dir,
+            body,
+            force=force,
+        )
+        return WorkspaceImportUploadResponse(
             imported_count=result.imported_count,
             imported_slugs=result.imported_slugs,
             message=result.message,

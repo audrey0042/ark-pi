@@ -195,14 +195,14 @@ Export writes a local zip on the machine running ark-rag (catalog, index data, a
 
 ### Workspace import
 
-Import restores an Ark Pi workspace export zip from a **server-side path** on the machine running ark-rag. Browser zip upload/import is future work.
+Import restores an Ark Pi workspace export zip into the configured workspace. The built-in web UI supports **Upload and import** (raw `application/zip` body to `POST /api/workspace/import/upload`) or **Import from path** for zips already on the machine running ark-rag. No multipart upload is used.
 
 ```bash
 ark workspace import --archive /tmp/ark-workspace-export.zip
 ark workspace import --archive /tmp/sample-only.zip --force
 ```
 
-Import validates archive structure, prevents path traversal, remaps catalog paths to the current `ARK_WORKSPACE_DIR`, and merges imported indexes with the existing catalog. Use `--force` to replace indexes that already exist.
+Import validates archive structure, prevents path traversal, remaps catalog paths to the current `ARK_WORKSPACE_DIR`, and merges imported indexes with the existing catalog. Use `--force` to replace indexes that already exist. Browser upload size is limited by `ARK_MAX_IMPORT_BYTES` (default 50 MiB).
 
 ## What is intentionally local-only right now
 

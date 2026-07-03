@@ -40,6 +40,7 @@ class ArkSettings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_tokens: int = Field(default=512, gt=0)
     llm_temperature: float = Field(default=0.0, ge=0)
+    max_import_bytes: int = Field(default=52_428_800, gt=0)
 
     # LLM / llama.cpp server (ark-llm Pi)
     llama_host: str = "0.0.0.0"

@@ -9,7 +9,11 @@ from ark_pi.rag import index as rag_index
 from ark_pi.workspace import catalog as workspace_catalog
 from ark_pi.workspace import ingest as workspace_ingest
 from ark_pi.workspace.export import export_workspace
-from ark_pi.workspace.importer import WorkspaceImportError, import_workspace
+from ark_pi.workspace.importer import (
+    WorkspaceImportError,
+    import_workspace,
+    import_workspace_archive_bytes,
+)
 from ark_pi.workspace.paths import index_root_dir
 
 SAMPLE_TEXT = "Ark Pi workspace import test content for indexing and search."
@@ -266,3 +270,65 @@ def test_import_missing_archive_fails(tmp_path: Path) -> None:
 
     with pytest.raises(WorkspaceImportError, match="does not exist"):
         import_workspace(target, missing)
+
+
+def test_import_from_bytes_restores_catalog_entry(
+    workspace_dir: Path,
+    empty_workspace_dir: Path,
+    tmp_path: Path,
+) -> None:
+    slug = _create_index(workspace_dir, index_name="sample")
+    archive = tmp_path / "export.zip"
+    _export_to(workspace_dir, archive)
+    archive_bytes = archive.read_bytes()
+
+    result = import_workspace_archive_bytes(empty_workspace_dir, archive_bytes)
+
+    assert result.imported_count == 1
+    assert result.imported_slugs == [slug]
+    assert workspace_catalog.get_index(empty_workspace_dir, slug) is not None
+
+
+def test_import_from_bytes_restores_searchable_index(
+    workspace_dir: Path,
+    empty_workspace_dir: Path,
+    tmp_path: Path,
+) -> None:
+    slug = _create_index(workspace_dir, index_name="searchable")
+    archive = tmp_path / "export.zip"
+    _export_to(workspace_dir, archive)
+
+    import_workspace_archive_bytes(empty_workspace_dir, archive.read_bytes())
+    entry = workspace_catalog.get_index(empty_workspace_dir, slug)
+    assert entry is not None
+
+    results = rag_index.search_index(Path(entry.index_dir), "import test content", limit=3)
+    assert len(results) >= 1
+
+
+def test_import_from_bytes_rejects_traversal_entry(
+    workspace_dir: Path,
+    empty_workspace_dir: Path,
+    tmp_path: Path,
+) -> None:
+    _create_index(workspace_dir, index_name="sample")
+    archive = tmp_path / "export.zip"
+    _export_to(workspace_dir, archive)
+
+    with zipfile.ZipFile(archive, "a") as zf:
+        zf.writestr("indexes/../escape.txt", "bad")
+
+    with pytest.raises(WorkspaceImportError, match="unsafe path"):
+        import_workspace_archive_bytes(empty_workspace_dir, archive.read_bytes())
+
+    assert workspace_catalog.list_indexes(empty_workspace_dir) == []
+
+
+def test_import_from_bytes_rejects_invalid_zip(empty_workspace_dir: Path) -> None:
+    with pytest.raises(WorkspaceImportError, match="not a valid zip"):
+        import_workspace_archive_bytes(empty_workspace_dir, b"not a zip file")
+
+
+def test_import_from_bytes_rejects_empty_body(empty_workspace_dir: Path) -> None:
+    with pytest.raises(WorkspaceImportError, match="empty"):
+        import_workspace_archive_bytes(empty_workspace_dir, b"")
