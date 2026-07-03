@@ -18,7 +18,7 @@ Ark Pi is early-stage. It is **not** a finished appliance you can flash onto two
 - Simple lexical index build and search (`ark index`)
 - RAG prompt assembly and `ark ask`
 - Local FastAPI RAG API (`ark serve`)
-- Minimal built-in web UI at `/` (named workspace indexes, paste text, local file ingest, ask)
+- Minimal built-in web UI at `/` (named workspace indexes, paste text, browser .txt import, local file ingest, ask)
 - Mock LLM backend for end-to-end wiring checks
 - Project config, CLI, tests, and docs
 
@@ -122,6 +122,8 @@ With the server running (`ark serve --host 127.0.0.1 --port 8000`), open [http:/
 
 **Paste and build:** use the **Add text** panel — set index name `sample`, paste document text, click **Build index**. Indexes live under `./data/workspace` by default (`ARK_WORKSPACE_DIR`).
 
+**Import from browser:** use the **Import text file** panel — choose a local `.txt` file from your device. The browser reads the file and sends its text through the existing ingest API. No backend file upload.
+
 **Ask:** pick an index from the dropdown and click **Ask**. No filesystem paths required for normal use.
 
 Or ingest via curl (workspace mode):
@@ -161,6 +163,12 @@ ark workspace ingest-path --source sample.txt --index-name local-sample --force
 ```
 
 Supports a single `.txt` file or a directory of `.txt` files. Source paths are resolved safely inside `ARK_SOURCE_DIR` — path traversal and paths outside the source directory are rejected.
+
+## Browser text file import
+
+Pick a `.txt` file from your phone or laptop in the **Import text file** panel. The browser reads the file locally (via `FileReader` or `file.text()`) and sends the text to `POST /api/ingest/text`. This is **not** backend multipart upload — raw files are not stored on the server.
+
+Only plain `.txt` / `text/plain` files are supported. PDF, DOCX, HTML, and Markdown parsing are future work.
 
 ## What is intentionally local-only right now
 

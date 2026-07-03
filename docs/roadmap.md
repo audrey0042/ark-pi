@@ -80,15 +80,21 @@ Server-side `.txt` file and directory ingest from `source_dir` (`ARK_SOURCE_DIR`
 
 **Status: done**
 
-## 15. WiFi AP and systemd deployment
+## 15. Browser text file import
+
+Browser-side `.txt` import in the built-in web UI. JavaScript reads the selected file locally and sends its text to the existing `POST /api/ingest/text` endpoint. No backend multipart upload, no raw file storage, no parser dependencies.
+
+**Status: done**
+
+## 16. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 16. SimpleWiki ingest
+## 17. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 17. Backup / export / import strategy
+## 18. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

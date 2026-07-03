@@ -30,6 +30,10 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert "Add local file" in html
     assert "/api/ingest/path" in html
     assert 'id="path-ingest-form"' in html
+    assert "Import text file" in html
+    assert 'id="import-form"' in html
+    assert 'id="import-file"' in html
+    assert 'accept=".txt,text/plain"' in html
     assert "include_context" in html
     assert "include_prompt" in html
 
