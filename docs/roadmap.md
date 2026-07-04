@@ -2,6 +2,16 @@
 
 Staged development plan for Ark Pi.
 
+## What's next
+
+The point is offline Q&A from your own index when WAN is down (e.g. *"how do I purify water?"* from docs you loaded earlier).
+
+Working now: laptop MVP (CLI, API, web UI, workspace tools, mock LLM), deploy review commands (render through unpack), and [manual two-Pi docs](deployment/two-pi-manual.md). The deploy commands are helpers for review, not the end product.
+
+Still TODO: installer script, WiFi AP, network automation, systemd install, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
+
+---
+
 ## 1. Scaffold and config
 
 Project structure, pydantic-settings config layer, minimal Typer CLI (`ark version`, `ark status`, `ark config`), docs, deployment placeholders, offline smoke tests.
@@ -54,11 +64,11 @@ Local FastAPI endpoints for health, config-safe status, index stats, search, and
 
 ## 10. llama.cpp server deployment
 
-Deploy llama.cpp on ark-llm Pi. ark-rag uses the existing OpenAI-compatible client over Ethernet. Real inference and model files — not required for laptop dev/tests.
+Deploy llama.cpp on ark-llm Pi. ark-rag uses the existing OpenAI-compatible client over Ethernet. Optional for laptop dev/tests.
 
 ## 11. Minimal web UI
 
-Built-in single-page HTML served at `GET /` and `GET /ui`. Calls local `POST /api/ask` from inline JavaScript — no npm, CDN, or build chain. Phone-friendly layout for future ark-rag use.
+Built-in single-page HTML at `GET /` and `GET /ui`. Inline JS calls `POST /api/ask`. No npm, CDN, or build chain.
 
 **Status: done**
 
@@ -70,7 +80,7 @@ Browser and API path to paste plain text, write chunks JSONL, and build a local 
 
 ## 13. Workspace index catalog
 
-Named indexes under `workspace_dir` with local `catalog.json` metadata. `GET /api/indexes`, workspace-mode text ingest, and web UI index dropdown — no raw filesystem paths for normal use.
+Named indexes under `workspace_dir` with local `catalog.json` metadata. `GET /api/indexes`, workspace-mode text ingest, and web UI index dropdown. No raw filesystem paths in normal use.
 
 **Status: done**
 
@@ -172,7 +182,7 @@ Verified deployment bundle unpack via CLI (`ark deploy unpack-bundle`). Validate
 
 ## 30. Two-Pi manual deployment docs
 
-Practical operator guide for manual ark-rag and ark-llm setup: mock-first validation, deployment artifact review, LLM diagnostics, and human systemd steps. See [docs/deployment/two-pi-manual.md](deployment/two-pi-manual.md).
+Manual two-Pi setup guide: mock-first smoke, deploy artifacts, LLM diagnostics, systemd by hand. [docs/deployment/two-pi-manual.md](deployment/two-pi-manual.md).
 
 **Status: done**
 
@@ -200,8 +210,12 @@ Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 
+## 36. Installer bootstrap
+
+Role-aware install script for ark-rag and ark-llm. Probably dry-run first, explicit confirm, show version/checksums. Maybe wget/curl later. Not written yet; don't `curl | bash` random scripts. Wait until manual Pi setup actually works.
+
 ---
 
 ## Future idea: dev lab (not planned yet)
 
-Two simulated nodes — containerized ark-rag and ark-llm — for laptop integration testing. The ark-llm container could initially serve a mock OpenAI-compatible endpoint. Real llama.cpp inference remains out of scope until stage 8.
+Two containerized nodes (ark-rag + ark-llm) for laptop integration testing. ark-llm could start as a mock OpenAI-compatible endpoint. Real llama.cpp inference waits until stage 8.

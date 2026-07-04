@@ -1,47 +1,49 @@
-# Two-Pi Manual Deployment
+# Two-Pi manual deployment
 
-Practical guide for a human operator setting up **ark-rag** and **ark-llm** from fresh hosts using the existing Ark Pi CLI, deployment artifacts, and diagnostics.
+How to stand up **ark-rag** and **ark-llm** by hand using the CLI and deploy commands in this repo.
 
-This is a **manual guide**, not an automated installer. Ark Pi has **not** been validated end-to-end on real Raspberry Pi hardware in this repository. Treat paths, hostnames, and systemd examples as **intended** layout for review.
+Use case: index your own docs on ark-rag, run llama.cpp on ark-llm, ask questions with no WAN (e.g. *"how do I purify water?"*).
 
-## Status and safety
+Laptop-only smoke test first: [README quickstart](../../README.md#quickstart).
 
-| What Ark Pi CLI does today | What it does **not** do |
-|----------------------------|-------------------------|
-| Render reviewable env/systemd templates | Install systemd units |
-| Run dry-run deployment preflight and install plans | Copy files into `/etc`, `/opt`, or `/srv` |
-| Package, verify, and unpack deployment bundles to staging | Run `sudo`, `systemctl`, or configure networking |
-| Initialize workspace storage, ingest, index, and serve the API | Install llama.cpp or download models |
-| Mock LLM smoke tests offline | Prove Pi WiFi AP or Ethernet setup |
+This is manual steps, not an installer. I haven't run the full stack end-to-end on real Pi hardware from this repo. Paths and systemd snippets are examples to edit.
 
-**Start with mock mode on ark-rag** before connecting to a real ark-llm server. Mock mode validates retrieval, prompt assembly, and client wiring without network calls.
+## What the CLI does and doesn't do
 
-Commands shown for system directories (for example `/etc/ark-pi/`, `/opt/ark-pi/`) are **for human review and manual execution** on the target host. Only run them when you understand the effect.
+| CLI | Does not |
+|-----|----------|
+| Render env/systemd templates | Install systemd units |
+| Dry-run preflight + install plan | Copy into `/etc`, `/opt`, `/srv` |
+| Bundle / verify / unpack to staging | `sudo`, `systemctl`, network config |
+| Init, ingest, index, `ark serve` | Install llama.cpp or fetch models |
+| Mock LLM tests | Prove WiFi AP or Ethernet works |
 
-Do not commit generated deployment bundles, model files, or secrets to git.
+Run ark-rag with `ARK_LLM_BACKEND=mock` before ark-llm exists.
+
+Examples that touch `/etc/ark-pi/` or `/opt/ark-pi/` are for you to run manually if you want them. Don't commit bundles, models, or secrets.
 
 ## Roles
 
-| Host | Responsibilities | Does **not** own |
-|------|------------------|------------------|
-| **ark-rag** | Web UI, FastAPI API, workspace catalog, ingest, indexing, prompt assembly, LLM client | Model weights, llama.cpp process |
-| **ark-llm** | OpenAI-compatible llama.cpp (or compatible) server, GGUF model files on disk | Documents, indexes, WiFi, web UI |
+| Host | Owns | Doesn't own |
+|------|------|-------------|
+| **ark-rag** | UI, API, catalog, ingest, indexes, prompts, LLM client | Models, llama.cpp |
+| **ark-llm** | llama.cpp server, GGUF files | Docs, indexes, WiFi, UI |
 
-**Why ark-llm stays mostly stateless:** retrieval needs workspace paths, catalog metadata, and index files on ark-rag. Prompt assembly combines retrieved chunks with the user question on ark-rag. ark-llm receives a complete prompt and returns text — no document state, no session history, no index. That keeps inference memory available for the model and lets you upgrade or replace the LLM host independently.
+ark-llm stays stateless on purpose. Indexes and prompts live on ark-rag. ark-llm just runs the model.
 
 ## Assumptions
 
 - Two hosts named `ark-rag` and `ark-llm`, or equivalent fixed IPs / mDNS names (examples use `ark-rag.local` and `ark-llm.local`).
 - **Python ≥ 3.12** (see `pyproject.toml`).
 - Git available on both hosts to clone this repository.
-- **Chroma not required** for MVP — default index backend is `simple` (lexical).
+- Chroma not required; default is `simple` lexical index
 - **Mock LLM backend** is the default for local smoke tests (`ARK_LLM_BACKEND=mock`).
 - A **GGUF model file** is required only for the real ark-llm inference path.
 - Network between ark-rag and ark-llm is reachable on the configured LLM port (default `8080` in generated templates).
 
-## Recommended first smoke on any machine
+## First smoke (any machine)
 
-Run this on a laptop or on either Pi **before** touching systemd or llama.cpp. It verifies Ark Pi without Pi-specific hardware and without a real LLM server.
+Run on a laptop or either Pi before systemd or llama.cpp.
 
 ```bash
 git clone <your-ark-pi-repo-url>
@@ -58,17 +60,19 @@ ark serve --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/` and confirm the web UI loads. Stop the server with Ctrl+C when done.
 
-## Generate deployment artifacts
+## Deployment artifacts
 
-On a build machine or either Pi, render templates and package review artifacts. **These commands do not install anything.**
+Render templates and zip them for review. **Does not install anything.**
+
+`/tmp` paths match the [README examples](../../README.md#deployment-artifacts). For local dev you can use `deploy/generated` instead.
 
 ```bash
 source .venv/bin/activate
 
-ark deploy render --output-dir deploy/generated --force
-ark deploy preflight --generated-dir deploy/generated
-ark deploy plan --generated-dir deploy/generated
-ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-pi-deploy-bundle.zip --force
+ark deploy render --output-dir /tmp/ark-pi-deploy-render --force
+ark deploy preflight --generated-dir /tmp/ark-pi-deploy-render
+ark deploy plan --generated-dir /tmp/ark-pi-deploy-render
+ark deploy bundle --generated-dir /tmp/ark-pi-deploy-render --output /tmp/ark-pi-deploy-bundle.zip --force
 ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
 ```
 
@@ -77,17 +81,17 @@ ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
 | File | Role | Purpose |
 |------|------|---------|
 | `ark-rag.env` | ark-rag | Example environment for `ark serve` |
-| `ark-rag.service` | ark-rag | Example systemd unit (review only) |
+| `ark-rag.service` | ark-rag | Example systemd unit |
 | `ark-llm.env` | ark-llm | Example llama.cpp paths and ports |
-| `ark-llm.service` | ark-llm | Example systemd unit (review only) |
+| `ark-llm.service` | ark-llm | Example systemd unit |
 
-The bundle zip is **portable** — copy it to another machine for review. Verification is read-only and does not extract or install.
+The zip is portable. Verification reads the archive in memory; it doesn't extract or install.
 
-Warnings about missing `/opt/ark-pi/.venv/bin/ark`, llama.cpp binaries, or model files are **expected on a dev laptop** before Pi install.
+Missing `/opt/ark-pi/.venv/bin/ark`, llama.cpp, or model paths on a laptop is normal before Pi install.
 
 ## Unpack a verified bundle for review
 
-After verification succeeds, extract into a **staging directory** for human inspection. Staging is not installation.
+After verify passes, unpack to a staging dir and look at the files. Staging is not install.
 
 ```bash
 ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
@@ -121,8 +125,8 @@ Read `reports/deployment-plan.md` for the full dry-run install plan. Ark Pi does
 
 From staging or `deploy/generated/`, read:
 
-- `templates/ark-rag.env` — workspace paths, index backend, LLM client settings
-- `templates/ark-rag.service` — intended `ExecStart` for `ark serve`
+- `templates/ark-rag.env`: workspace paths, index backend, LLM settings
+- `templates/ark-rag.service`: example `ExecStart` for `ark serve`
 
 Adapt paths if your layout differs from `/opt/ark-pi` and `/srv/ark-pi/`.
 
@@ -130,7 +134,7 @@ Adapt paths if your layout differs from `/opt/ark-pi` and `/srv/ark-pi/`.
 
 | Phase | `ARK_LLM_BACKEND` | `ARK_LLM_BASE_URL` |
 |-------|-------------------|--------------------|
-| First boot (recommended) | `mock` | not required |
+| First boot | `mock` | not required |
 | After ark-llm is ready | `openai-compatible` | `http://ark-llm.local:8080` (or your ark-llm IP) |
 
 Generated templates default to `openai-compatible` pointing at ark-llm. For first boot, set `mock` in your local `.env` or exported environment until ark-llm is verified.
@@ -140,7 +144,7 @@ Generated templates default to `openai-compatible` pointing at ark-llm. For firs
 Example layout (adjust to your disk mounts):
 
 ```bash
-# Human-operated example — not run by Ark Pi CLI
+# You run this; the CLI does not
 sudo mkdir -p /opt/ark-pi /srv/ark-pi/data/workspace /srv/ark-pi/data/sources
 sudo chown "$USER":"$USER" /opt/ark-pi /srv/ark-pi/data/workspace /srv/ark-pi/data/sources
 
@@ -182,8 +186,8 @@ Stop with Ctrl+C, then proceed to systemd review (below) when ready.
 
 From staging or `deploy/generated/`:
 
-- `templates/ark-llm.env` — `ARK_LLAMACPP_SERVER_BIN`, model path, host, port
-- `templates/ark-llm.service` — intended service command
+- `templates/ark-llm.env`: binary path, model path, host, port
+- `templates/ark-llm.service`: example unit file
 
 ### 2. Install llama.cpp manually
 
@@ -200,7 +204,7 @@ Copy a GGUF model to the configured path (generated default: `/srv/ark-pi/models
 Load variables from your adapted `ark-llm.env`, then start the server in the foreground:
 
 ```bash
-# Example — flags may differ by llama.cpp version; check your binary's --help
+# Flags vary by llama.cpp build; check --help on your binary
 $ARK_LLAMACPP_SERVER_BIN \
   --host 0.0.0.0 \
   --port 8080 \
@@ -209,7 +213,7 @@ $ARK_LLAMACPP_SERVER_BIN \
   --threads 4
 ```
 
-Confirm the server exposes an **OpenAI-compatible** HTTP API on the configured port. Exact flag names are not guaranteed across llama.cpp versions — verify against your installed binary.
+Check your binary's `--help`. Flag names change between llama.cpp versions.
 
 **Do not enable systemd on ark-llm until manual foreground run works.**
 
@@ -222,17 +226,17 @@ When ark-llm responds manually:
    - `ARK_LLM_BASE_URL=http://ark-llm.local:8080` (hostname or IP you actually use)
 2. Restart `ark serve` (foreground) or reload env for your process manager.
 
-### Passive status vs. active test
+### Status vs test
 
 ```bash
-# Passive — reads config only, does NOT contact ark-llm
+# Config only; no call to ark-llm
 ark llm status
 
-# Explicit network check — sends a tiny diagnostic prompt
+# Actually hits the backend
 ark llm test --llm-backend openai-compatible --llm-base-url http://ark-llm.local:8080
 ```
 
-`ark llm status` confirms configuration is present; it does **not** prove ark-llm is reachable. Use `ark llm test` when you are ready for an explicit connectivity check.
+`ark llm status` does not prove ark-llm is reachable. Use `ark llm test` when you want a real request.
 
 Mock smoke (no ark-llm required):
 
@@ -242,9 +246,9 @@ ark llm test --llm-backend mock
 
 ## Manual systemd review
 
-Generated templates and the install plan describe **intended** production layout:
+Generated templates and the install plan show where files would go:
 
-| Artifact | Intended destination (human copy) |
+| Artifact | Copy to (you run this) |
 |----------|-----------------------------------|
 | `ark-rag.env` | `/etc/ark-pi/ark-rag.env` |
 | `ark-rag.service` | `/etc/systemd/system/ark-rag.service` |
@@ -257,12 +261,11 @@ Review the dry-run plan:
 ark deploy plan --generated-dir deploy/generated --format markdown
 ```
 
-The plan lists example manual commands such as `sudo mkdir`, `sudo cp`, `sudo systemctl daemon-reload`, and `sudo systemctl enable --now`. **Ark Pi does not run these commands.** A human operator performs them after manual foreground testing succeeds.
+The plan lists manual steps (`sudo mkdir`, `sudo cp`, `systemctl`, etc.). **The CLI never runs them.** You do, after foreground testing works.
 
-Typical manual sequence (documentation only — run on the target host at your own discretion):
+Example for ark-rag (review before running):
 
 ```bash
-# Example for ark-rag — review before running
 sudo cp templates/ark-rag.env /etc/ark-pi/ark-rag.env
 sudo cp templates/ark-rag.service /etc/systemd/system/ark-rag.service
 sudo systemctl daemon-reload
@@ -289,7 +292,7 @@ When ark-llm is configured:
 ark llm test --llm-backend openai-compatible --llm-base-url http://ark-llm.local:8080
 ```
 
-HTTP checks (examples — require working DNS or `/etc/hosts` and network access):
+HTTP examples (need DNS or `/etc/hosts`):
 
 ```bash
 curl http://ark-rag.local:8000/healthz
@@ -305,14 +308,14 @@ On **ark-llm**, confirm the inference server responds on its configured port usi
 | ark-rag web UI not reachable | `ark serve` binding (`ARK_HOST`, `--host`); firewall; WiFi/Ethernet not configured yet |
 | `ark llm status` looks fine but active test fails | Wrong `ARK_LLM_BASE_URL`; ark-llm not running; firewall between Pis; DNS for `ark-llm.local` |
 | Model path missing on ark-llm | GGUF file at `ARK_LLAMACPP_MODEL_PATH`; permissions; disk mount at `/srv/ark-pi/models` |
-| Deployment preflight warnings on laptop | Expected — `/opt/ark-pi`, llama.cpp binary, and model paths do not exist until Pi install |
+| Deployment preflight warnings on laptop | Normal. `/opt/ark-pi` and model paths won't exist until install |
 | Workspace/source dirs missing | Run `ark init --sample` or create paths manually; check `ARK_WORKSPACE_DIR` and `ARK_SOURCE_DIR` |
 | Wrong hostname or DNS | Use fixed IPs in `ARK_LLM_BASE_URL` temporarily; add `/etc/hosts` entries on ark-rag |
 | Network isolation | Ethernet link between Pis; routes; no cross-VLAN blocking between ark-rag and ark-llm |
 
 ## What is still future work
 
-- Real installer and automated deployment
+- Installer script ([roadmap §36](../roadmap.md#36-installer-bootstrap)); manual guide is what exists today
 - WiFi AP mode on ark-rag
 - Network configuration (static Ethernet, DHCP, DNS, firewall)
 - llama.cpp install automation

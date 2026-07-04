@@ -14,14 +14,14 @@ Future responsibilities for the RAG Pi. **Not implemented in the initial scaffol
 
 ## systemd services
 
-- `ark-rag.service` — RAG API and web UI (future).
+- `ark-rag.service`: RAG API and web UI (future).
 - Optional ingest/index rebuild timer or oneshot unit.
 
 ## Storage mounts
 
 - Mount NVMe (or other durable storage) at `/srv/ark-pi/`.
 - Expected layout:
-  - `/srv/ark-pi/data` — source documents
-  - `/srv/ark-pi/indexes` — vector index (Chroma under `indexes/chroma`)
+  - `/srv/ark-pi/data`: source documents
+  - `/srv/ark-pi/indexes`: vector index (Chroma under `indexes/chroma`)
 
 Subdirectories `systemd/`, `network/`, and `wifi-ap/` are reserved for future config snippets. No executable scripts in the scaffold pass.
