@@ -181,6 +181,14 @@ ark deploy unpack-bundle --bundle /tmp/ark-deploy-bundle.zip --staging-dir /tmp/
 
 Use `--force` to replace existing contents inside the staging directory. Future install automation may consume the staged files; this command only performs verified extraction.
 
+## Manual two-Pi deployment
+
+A step-by-step operator guide for setting up **ark-rag** and **ark-llm** by hand — mock-first validation, LLM diagnostics, deployment artifact review, and manual systemd prep — is in [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md).
+
+The guide uses the existing `ark deploy render`, `preflight`, `plan`, `bundle`, `verify-bundle`, and `unpack-bundle` commands for review artifacts. **No real installer exists yet**; systemd and networking steps in the guide are for human execution only.
+
+See also [docs/deployment/README.md](docs/deployment/README.md) for a short index of deployment documentation.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
