@@ -1,7 +1,8 @@
 #!/bin/sh
 #
-# Ark Pi install bootstrap (v4).
-# App bootstrap, deploy render, optional service install, apt OS prerequisites.
+# Ark Pi install bootstrap (v5).
+# App bootstrap, deploy render, optional service install, apt OS prerequisites,
+# post-install validation and --validate-only mode.
 # Does not install llama.cpp or models.
 #
 
@@ -23,6 +24,10 @@ NO_OS_PACKAGES=0
 PACKAGE_MANAGER="auto"
 PKG_INSTALL_ENABLED=0
 RESOLVED_PKG_MGR="none"
+VALIDATE_ONLY=0
+NO_VALIDATE=0
+VALIDATION_FAILED=0
+VALIDATION_WARNED=0
 
 OS=""
 ARCH=""
@@ -58,12 +63,15 @@ Options:
   --package-manager MODE    auto, apt, or none (default: auto)
   --no-enable               Skip systemctl enable (when installing to /)
   --no-start                Skip systemctl start (when installing to /)
+  --validate-only           Validate an existing install; no mutations
+  --no-validate             Skip post-install validation after real install
   --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
   sh install.sh --role rag --no-os-packages --dry-run
   sh install.sh --role rag --install-services --dry-run
+  sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
   sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --service-root /tmp/ark-pi-service-root --install-services --yes
 EOF
 }
@@ -133,6 +141,14 @@ parse_args() {
         ;;
       --no-start)
         NO_START=1
+        shift
+        ;;
+      --validate-only)
+        VALIDATE_ONLY=1
+        shift
+        ;;
+      --no-validate)
+        NO_VALIDATE=1
         shift
         ;;
       --no-os-packages)
@@ -615,6 +631,18 @@ print_common_summary() {
       echo "Start services:        yes (when service root is /)"
     fi
   fi
+  if [ "$VALIDATE_ONLY" -eq 1 ]; then
+    echo "Validate only:         yes"
+  else
+    echo "Validate only:         no"
+  fi
+  if [ "$NO_VALIDATE" -eq 1 ]; then
+    echo "Post-install validate: no (--no-validate)"
+  elif [ "$VALIDATE_ONLY" -eq 1 ]; then
+    echo "Post-install validate: n/a"
+  else
+    echo "Post-install validate: yes"
+  fi
   echo ""
 }
 
@@ -710,9 +738,14 @@ print_plan() {
   print_common_summary
   print_os_prerequisite_steps
   echo ""
-  print_app_bootstrap_steps
-  print_service_install_steps
-  print_future_service_steps
+  if [ "$VALIDATE_ONLY" -eq 1 ]; then
+    print_validation_plan_steps
+  else
+    print_app_bootstrap_steps
+    print_service_install_steps
+    print_future_service_steps
+    print_post_install_validation_note
+  fi
   print_dry_run_footer
 }
 
@@ -924,6 +957,303 @@ run_systemctl_actions() {
   fi
 }
 
+deploy_templates_for_role() {
+  case "$ROLE" in
+    rag)
+      echo ark-rag.env
+      echo ark-rag.service
+      ;;
+    llm)
+      echo ark-llm.env
+      echo ark-llm.service
+      ;;
+    both)
+      echo ark-rag.env
+      echo ark-rag.service
+      echo ark-llm.env
+      echo ark-llm.service
+      ;;
+  esac
+}
+
+service_env_files_for_role() {
+  case "$ROLE" in
+    rag) echo ark-rag.env ;;
+    llm) echo ark-llm.env ;;
+    both)
+      echo ark-rag.env
+      echo ark-llm.env
+      ;;
+  esac
+}
+
+service_unit_files_for_role() {
+  case "$ROLE" in
+    rag) echo ark-rag.service ;;
+    llm) echo ark-llm.service ;;
+    both)
+      echo ark-rag.service
+      echo ark-llm.service
+      ;;
+  esac
+}
+
+should_validate_services() {
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    return 0
+  fi
+  for _env in $(service_env_files_for_role); do
+    if [ -f "$(service_dest "/etc/ark-pi/$_env")" ]; then
+      return 0
+    fi
+  done
+  for _unit in $(service_unit_files_for_role); do
+    if [ -f "$(service_dest "/etc/systemd/system/$_unit")" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+reset_validation_state() {
+  VALIDATION_FAILED=0
+  VALIDATION_WARNED=0
+}
+
+record_validation_check() {
+  _id="$1"
+  _status="$2"
+  _message="$3"
+  printf "  [%s] %s: %s\n" "$_status" "$_id" "$_message"
+  case "$_status" in
+    pass) ;;
+    warning) VALIDATION_WARNED=1 ;;
+    fail) VALIDATION_FAILED=1 ;;
+    *)
+      die "internal validation status error: $_status"
+      ;;
+  esac
+}
+
+check_deploy_templates_exist() {
+  _missing=0
+  for _file in $(deploy_templates_for_role); do
+    if [ ! -f "$GENERATED_DIR/$_file" ]; then
+      _missing=1
+    fi
+  done
+  if [ "$_missing" -eq 1 ]; then
+    record_validation_check deploy_templates fail "missing deployment templates under $GENERATED_DIR for role $ROLE"
+    return 1
+  fi
+  record_validation_check deploy_templates pass "deployment templates present for role $ROLE"
+  return 0
+}
+
+check_systemctl_unit_state() {
+  _unit="$1"
+  if ! command_exists systemctl; then
+    record_validation_check "systemctl_${_unit}" warning "systemctl not found; skipping unit state for $_unit"
+    return 0
+  fi
+  if systemctl is-enabled "$_unit" >/dev/null 2>&1; then
+    record_validation_check systemctl_enabled pass "$_unit is enabled"
+  else
+    record_validation_check systemctl_enabled warning "$_unit is not enabled"
+  fi
+  if systemctl is-active "$_unit" >/dev/null 2>&1; then
+    record_validation_check systemctl_active pass "$_unit is active"
+  else
+    record_validation_check systemctl_active warning "$_unit is not active"
+  fi
+}
+
+run_validation_checks() {
+  _ark="$PREFIX/.venv/bin/ark"
+  _deploy_role=$(deploy_role_for_install_role)
+
+  reset_validation_state
+  echo "Validation checks:"
+
+  if [ -d "$PREFIX" ]; then
+    record_validation_check prefix_exists pass "prefix exists: $PREFIX"
+  else
+    record_validation_check prefix_exists fail "prefix missing: $PREFIX"
+  fi
+
+  if [ -x "$_ark" ]; then
+    record_validation_check venv_ark pass "ark CLI present: $_ark"
+  else
+    record_validation_check venv_ark fail "ark CLI missing or not executable: $_ark"
+  fi
+
+  if [ -x "$_ark" ]; then
+    if "$_ark" --help >/dev/null 2>&1; then
+      record_validation_check ark_help pass "ark --help succeeded"
+    else
+      record_validation_check ark_help fail "ark --help failed"
+    fi
+  fi
+
+  if [ -d "$DATA_DIR" ]; then
+    record_validation_check data_dir pass "data dir exists: $DATA_DIR"
+  else
+    record_validation_check data_dir fail "data dir missing: $DATA_DIR"
+  fi
+
+  if [ -d "$GENERATED_DIR" ]; then
+    record_validation_check generated_dir pass "generated dir exists: $GENERATED_DIR"
+  else
+    record_validation_check generated_dir fail "generated dir missing: $GENERATED_DIR"
+  fi
+
+  if [ -d "$GENERATED_DIR" ]; then
+    check_deploy_templates_exist
+  fi
+
+  if [ -x "$_ark" ] && [ -d "$GENERATED_DIR" ]; then
+    if "$_ark" deploy preflight --generated-dir "$GENERATED_DIR" --role "$_deploy_role" >/dev/null 2>&1; then
+      record_validation_check deploy_preflight pass "ark deploy preflight succeeded"
+    else
+      record_validation_check deploy_preflight fail "ark deploy preflight failed for role $_deploy_role"
+    fi
+  fi
+
+  case "$ROLE" in
+    rag|both)
+      if [ -d "$DATA_DIR/data/workspace" ]; then
+        record_validation_check rag_workspace_dir pass "RAG workspace dir exists"
+      else
+        record_validation_check rag_workspace_dir fail "RAG workspace dir missing: $DATA_DIR/data/workspace"
+      fi
+      if [ -d "$DATA_DIR/data/sources" ]; then
+        record_validation_check rag_source_dir pass "RAG sources dir exists"
+      else
+        record_validation_check rag_source_dir fail "RAG sources dir missing: $DATA_DIR/data/sources"
+      fi
+      if [ -x "$_ark" ]; then
+        if "$_ark" llm status >/dev/null 2>&1; then
+          record_validation_check rag_llm_status pass "ark llm status succeeded"
+        else
+          record_validation_check rag_llm_status warning "ark llm status failed (LLM may be offline)"
+        fi
+      fi
+      ;;
+  esac
+
+  case "$ROLE" in
+    llm|both)
+      if [ -d "$DATA_DIR/models" ]; then
+        record_validation_check llm_model_dir pass "LLM model dir exists"
+      else
+        record_validation_check llm_model_dir fail "LLM model dir missing: $DATA_DIR/models"
+      fi
+      _gguf=$(find "$DATA_DIR/models" -type f -name '*.gguf' 2>/dev/null | head -n 1)
+      if [ -n "$_gguf" ]; then
+        record_validation_check llm_model_file pass "GGUF model file found under $DATA_DIR/models"
+      else
+        record_validation_check llm_model_file warning "no GGUF model file under $DATA_DIR/models (manual step)"
+      fi
+      ;;
+  esac
+
+  if should_validate_services; then
+    _missing_env=0
+    for _env in $(service_env_files_for_role); do
+      _dest=$(service_dest "/etc/ark-pi/$_env")
+      if [ ! -f "$_dest" ]; then
+        _missing_env=1
+        record_validation_check service_env_files fail "missing env file: $_dest"
+      fi
+    done
+    if [ "$_missing_env" -eq 0 ]; then
+      record_validation_check service_env_files pass "service env files present under $(service_dest /etc/ark-pi)"
+    fi
+
+    _missing_unit=0
+    for _unit in $(service_unit_files_for_role); do
+      _dest=$(service_dest "/etc/systemd/system/$_unit")
+      if [ ! -f "$_dest" ]; then
+        _missing_unit=1
+        record_validation_check service_unit_files fail "missing unit file: $_dest"
+      fi
+    done
+    if [ "$_missing_unit" -eq 0 ]; then
+      record_validation_check service_unit_files pass "service unit files present under $(service_dest /etc/systemd/system)"
+    fi
+
+    if [ "$SERVICE_ROOT" = "/" ] || [ "${ARK_PI_INSTALL_TEST_SYSTEMCTL_ROOT:-0}" = "1" ]; then
+      for _unit in $(service_unit_names_for_role); do
+        check_systemctl_unit_state "$_unit"
+      done
+    fi
+  fi
+}
+
+finalize_validation() {
+  echo ""
+  if [ "$VALIDATION_FAILED" -eq 1 ]; then
+    echo "Validation: FAIL"
+    return 1
+  fi
+  if [ "$VALIDATION_WARNED" -eq 1 ]; then
+    echo "Validation: PASS (with warnings)"
+    return 0
+  fi
+  echo "Validation: PASS"
+  return 0
+}
+
+run_validation() {
+  run_validation_checks
+  finalize_validation
+}
+
+print_validation_plan_steps() {
+  echo "Validation steps:"
+  echo "  Check prefix, ark CLI, data dir, generated dir"
+  echo "  Check deployment templates and ark deploy preflight for role $ROLE"
+  case "$ROLE" in
+    rag|both)
+      echo "  Check RAG workspace/sources dirs and ark llm status (warning if LLM offline)"
+      ;;
+  esac
+  case "$ROLE" in
+    llm|both)
+      echo "  Check LLM model dir and warn if no GGUF model file"
+      ;;
+  esac
+  if should_validate_services; then
+    echo "  Check service env/unit files under service root: $SERVICE_ROOT"
+    if [ "$SERVICE_ROOT" = "/" ]; then
+      echo "  Check systemctl is-enabled/is-active (read-only; warnings only)"
+    else
+      echo "  Skip systemctl (redirected service root)"
+    fi
+  else
+    echo "  Skip service file checks (no --install-services and no files found)"
+  fi
+  echo "  Does not install llama.cpp, download models, or configure networking"
+}
+
+print_validate_only_plan() {
+  print_common_summary
+  echo ""
+  print_validation_plan_steps
+  print_dry_run_footer
+}
+
+print_post_install_validation_note() {
+  echo ""
+  if [ "$NO_VALIDATE" -eq 1 ]; then
+    echo "Post-install validation: skipped (--no-validate)"
+    echo "Run later:"
+    echo "  sh install.sh --role $ROLE --validate-only --prefix $PREFIX --data-dir $DATA_DIR --generated-dir $GENERATED_DIR --service-root $SERVICE_ROOT"
+    return 0
+  fi
+  echo "Post-install validation: will run after install unless --no-validate"
+}
+
 print_validation_commands() {
   _deploy_role=$(deploy_role_for_install_role)
   _ark="$PREFIX/.venv/bin/ark"
@@ -998,6 +1328,15 @@ run_bootstrap() {
   install_service_files
   run_systemctl_actions
   print_success_message
+  if [ "$NO_VALIDATE" -eq 0 ]; then
+    echo ""
+    echo "Running post-install validation..."
+    if ! run_validation; then
+      die "post-install validation failed"
+    fi
+  else
+    print_post_install_validation_note
+  fi
 }
 
 main() {
@@ -1014,10 +1353,21 @@ main() {
   validate_role
   validate_generated_dir
   validate_service_root
-  resolve_package_manager
+  if [ "$VALIDATE_ONLY" -eq 0 ]; then
+    resolve_package_manager
+  fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
     print_plan
+    exit 0
+  fi
+
+  if [ "$VALIDATE_ONLY" -eq 1 ]; then
+    print_common_summary
+    echo ""
+    if ! run_validation; then
+      exit 1
+    fi
     exit 0
   fi
 
@@ -1027,6 +1377,7 @@ main() {
   print_app_bootstrap_steps
   print_service_install_steps
   print_future_service_steps
+  print_post_install_validation_note
   echo ""
   require_confirmation_for_mutation
   run_bootstrap

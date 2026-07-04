@@ -77,6 +77,8 @@ With `--install-services`, it copies rendered env/systemd files (backs up existi
 
 Use `--no-os-packages` or `--package-manager none` to skip apt and only verify required commands exist. Default `--package-manager auto` uses apt when `apt-get` is available.
 
+After a real install, validation runs automatically (app CLI, data dirs, generated templates, `ark deploy preflight`, optional service files). Use `--no-validate` to skip, or `--validate-only` to check an existing install without mutations. Validation does not test llama.cpp inference or network configuration.
+
 Does **not** install llama.cpp or models. Does **not** configure network or WiFi AP.
 
 Plan only (includes apt package plan on Debian-family systems):
@@ -84,7 +86,16 @@ Plan only (includes apt package plan on Debian-family systems):
 ```bash
 sh install.sh --role rag --dry-run
 sh install.sh --role rag --no-os-packages --dry-run
+sh install.sh --role rag --no-validate --dry-run
 sh install.sh --role rag --install-services --dry-run
+```
+
+Validate an existing install:
+
+```bash
+sh install.sh --role rag --validate-only \
+  --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data \
+  --generated-dir /tmp/ark-pi-generated
 ```
 
 App bootstrap:

@@ -214,17 +214,23 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 `install.sh` at repo root.
 
-**App bootstrap + deploy render + optional service install + apt OS prerequisites (done):** minimal packages on Debian-family hosts, clone, venv, pip, data dirs, `ark deploy render`, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
+**App bootstrap + deploy render + optional service install + apt OS prerequisites + validation (done):** minimal packages on Debian-family hosts, clone, venv, pip, data dirs, `ark deploy render`, post-install validation, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
 
 ```bash
 sh install.sh --role rag --dry-run
-sh install.sh --role rag --no-os-packages --dry-run
+sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
 sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-root --yes
 ```
 
 **Future (not started):** llama.cpp, model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: OS packages + app bootstrap + render + service files done; llm/network not started**
+**Status: OS packages + app bootstrap + render + service files + validation done; llm/network not started**
+
+## 43. Install validation
+
+Post-install validation and `--validate-only` mode: check app CLI, role data dirs, generated templates, `ark deploy preflight`, optional service files, and read-only systemctl state. Flags: `--validate-only`, `--no-validate`. Does not test model inference or networking.
+
+**Status: done**
 
 ## 42. Install OS prerequisites
 
