@@ -154,6 +154,19 @@ ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-deploy-bund
 
 The zip contains rendered templates for the selected role, deployment preflight JSON, install plan JSON and markdown, a checksum manifest, and a short README. Copy the archive to another machine for human review before any manual Pi install.
 
+### Deployment bundle verification
+
+After creating a bundle, verify it read-only before copying to another machine. **Verification opens the zip in memory, validates the manifest, checks SHA-256 checksums, and confirms dry-run safety flags. It does not extract files, write files, or install services.**
+
+```bash
+ark deploy render --output-dir deploy/generated --force
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-deploy-bundle.zip --force
+ark deploy verify-bundle --bundle /tmp/ark-deploy-bundle.zip
+ark deploy verify-bundle --bundle /tmp/ark-deploy-bundle.zip --json
+```
+
+Verification confirms role-specific template contents, rejects unsafe archive entries, and fails if the embedded install plan claims any step was performed.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
