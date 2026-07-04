@@ -8,7 +8,7 @@ The point is offline Q&A from your own index when WAN is down (e.g. *"how do I p
 
 Working now: laptop MVP (CLI, API, web UI, workspace tools, mock LLM), deploy review commands (render through unpack), and [manual two-Pi docs](deployment/two-pi-manual.md). The deploy commands are helpers for review, not the end product.
 
-Still TODO: installer script, WiFi AP, network automation, systemd install, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
+Still TODO: `install.sh` bootstrap ([contract written](deployment/installer-bootstrap-contract.md), script not), WiFi AP, network automation, systemd install, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
 
 ---
 
@@ -212,7 +212,23 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 ## 36. Installer bootstrap
 
-Role-aware install script for ark-rag and ark-llm. Probably dry-run first, explicit confirm, show version/checksums. Maybe wget/curl later. Not written yet; don't `curl | bash` random scripts. Wait until manual Pi setup actually works.
+Future role-aware `install.sh` for ark-rag and/or ark-llm. Target UX:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role llm --yes
+```
+
+Interactive role prompt when `--role` is omitted. Non-interactive flags: `--role`, `--dry-run`, `--yes`, `--branch`, `--prefix`, `--data-dir`. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+
+**Status: not started** (script does not exist)
+
+## 37. Installer bootstrap contract (docs)
+
+Document the future `install.sh` UX, flags, dry-run rules, role behavior, and safety boundaries before writing the script. See [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+
+**Status: done**
 
 ---
 
