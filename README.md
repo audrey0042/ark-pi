@@ -71,16 +71,19 @@ Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.m
 
 ## Install bootstrap (`install.sh`)
 
-`install.sh` bootstraps the app and renders deployment templates: clone/update repo, venv, `pip install -e`, role data dirs, `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
+`install.sh` bootstraps the app and renders deployment templates: on apt-based hosts (Raspberry Pi OS, Debian, Ubuntu) it can install minimal OS packages (`git`, `python3`, `python3-venv`, `python3-pip`, `curl`, `ca-certificates`), then clone/update repo, venv, `pip install -e`, role data dirs, and `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
 
-With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: app bootstrap + render only.
+With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: OS packages (if enabled) + app bootstrap + render only.
 
-Does **not** install OS packages, llama.cpp, or models. Does **not** configure network or WiFi AP.
+Use `--no-os-packages` or `--package-manager none` to skip apt and only verify required commands exist. Default `--package-manager auto` uses apt when `apt-get` is available.
 
-Plan only:
+Does **not** install llama.cpp or models. Does **not** configure network or WiFi AP.
+
+Plan only (includes apt package plan on Debian-family systems):
 
 ```bash
 sh install.sh --role rag --dry-run
+sh install.sh --role rag --no-os-packages --dry-run
 sh install.sh --role rag --install-services --dry-run
 ```
 

@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# Ark Pi install bootstrap (v3).
-# App bootstrap, deploy render, optional service file install (--install-services).
-# Does not install OS packages, llama.cpp, or models.
+# Ark Pi install bootstrap (v4).
+# App bootstrap, deploy render, optional service install, apt OS prerequisites.
+# Does not install llama.cpp or models.
 #
 
 set -u
@@ -19,9 +19,15 @@ SERVICE_ROOT="/"
 INSTALL_SERVICES=0
 NO_ENABLE=0
 NO_START=0
+NO_OS_PACKAGES=0
+PACKAGE_MANAGER="auto"
+PKG_INSTALL_ENABLED=0
+RESOLVED_PKG_MGR="none"
 
 OS=""
 ARCH=""
+
+APT_PACKAGES="ca-certificates curl git python3 python3-venv python3-pip"
 
 usage() {
   cat <<'EOF'
@@ -31,7 +37,8 @@ Bootstraps the Ark Pi app: clone/update repo, Python venv, pip install -e,
 role-specific data directories, deployment template render, and optional
 env/systemd file install.
 
-Does not install OS packages, llama.cpp, or download models.
+Does not install llama.cpp or download models. On Debian-family hosts,
+can install minimal apt prerequisites (git, python3, python3-venv, etc.).
 
 Usage:
   sh install.sh [options]
@@ -47,12 +54,15 @@ Options:
   --generated-dir PATH      Render templates here (default: $DATA_DIR/deploy/generated)
   --install-services        Install rendered env/systemd files (explicit opt-in)
   --service-root PATH       Root for service files (default: /)
+  --no-os-packages          Skip apt package install; check commands only
+  --package-manager MODE    auto, apt, or none (default: auto)
   --no-enable               Skip systemctl enable (when installing to /)
   --no-start                Skip systemctl start (when installing to /)
   --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
+  sh install.sh --role rag --no-os-packages --dry-run
   sh install.sh --role rag --install-services --dry-run
   sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --service-root /tmp/ark-pi-service-root --install-services --yes
 EOF
@@ -68,11 +78,34 @@ is_interactive() {
 }
 
 is_root() {
-  [ "$(id -u)" -eq 0 ]
+  [ "$(effective_uid)" -eq 0 ]
+}
+
+effective_uid() {
+  if [ -n "${ARK_PI_INSTALL_TEST_EUID:-}" ]; then
+    echo "$ARK_PI_INSTALL_TEST_EUID"
+    return 0
+  fi
+  id -u
 }
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+run_as_root() {
+  if is_root; then
+    "$@"
+    return $?
+  fi
+  if [ "${ARK_PI_INSTALL_TEST_NO_SUDO:-0}" = "1" ]; then
+    die "root or sudo required for: $*"
+  fi
+  if command_exists sudo; then
+    sudo "$@"
+    return $?
+  fi
+  die "root or sudo required for: $*"
 }
 
 parse_args() {
@@ -101,6 +134,21 @@ parse_args() {
       --no-start)
         NO_START=1
         shift
+        ;;
+      --no-os-packages)
+        NO_OS_PACKAGES=1
+        shift
+        ;;
+      --package-manager=*)
+        PACKAGE_MANAGER="${1#*=}"
+        shift
+        ;;
+      --package-manager)
+        if [ $# -lt 2 ]; then
+          die "missing value for --package-manager"
+        fi
+        PACKAGE_MANAGER="$2"
+        shift 2
         ;;
       --role=*)
         ROLE="${1#*=}"
@@ -353,6 +401,79 @@ validate_service_root() {
   esac
 }
 
+validate_package_manager_flag() {
+  case "$PACKAGE_MANAGER" in
+    auto|apt|none) ;;
+    *) die "unsupported --package-manager: $PACKAGE_MANAGER (expected auto, apt, or none)" ;;
+  esac
+}
+
+resolve_package_manager() {
+  validate_package_manager_flag
+  if [ "$NO_OS_PACKAGES" -eq 1 ] || [ "$PACKAGE_MANAGER" = "none" ]; then
+    PKG_INSTALL_ENABLED=0
+    RESOLVED_PKG_MGR="none"
+    return 0
+  fi
+  case "$PACKAGE_MANAGER" in
+    auto)
+      if command_exists apt-get; then
+        PKG_INSTALL_ENABLED=1
+        RESOLVED_PKG_MGR="apt"
+        return 0
+      fi
+      die "apt-get not found; use --no-os-packages or --package-manager none to skip OS package install"
+      ;;
+    apt)
+      if command_exists apt-get; then
+        PKG_INSTALL_ENABLED=1
+        RESOLVED_PKG_MGR="apt"
+        return 0
+      fi
+      die "apt-get not found but --package-manager apt was requested"
+      ;;
+  esac
+}
+
+manual_package_guidance() {
+  echo "Install these packages manually: $APT_PACKAGES" >&2
+}
+
+apt_install_command() {
+  echo "apt-get install -y $APT_PACKAGES"
+}
+
+print_os_prerequisite_steps() {
+  echo "OS prerequisite steps:"
+  if [ "$PKG_INSTALL_ENABLED" -eq 1 ]; then
+    if is_root; then
+      echo "  Run apt-get update"
+      echo "  Run $(apt_install_command)"
+    else
+      echo "  Run sudo apt-get update"
+      echo "  Run sudo $(apt_install_command)"
+    fi
+    echo "  Packages: $APT_PACKAGES"
+  else
+    echo "  Skip apt package install (--no-os-packages or --package-manager none)"
+    echo "  Verify commands exist: git python3 curl"
+    echo "  Verify python3 -m venv works"
+  fi
+}
+
+install_os_prerequisites() {
+  if [ "$PKG_INSTALL_ENABLED" -eq 0 ]; then
+    return 0
+  fi
+  if ! run_as_root apt-get update; then
+    die "apt-get update failed"
+  fi
+  # shellcheck disable=SC2086
+  if ! run_as_root apt-get install -y $APT_PACKAGES; then
+    die "apt-get install failed"
+  fi
+}
+
 service_dest() {
   _suffix="$1"
   if [ "$SERVICE_ROOT" = "/" ]; then
@@ -461,6 +582,17 @@ print_common_summary() {
   echo "Generated dir:         $GENERATED_DIR"
   echo "Install services:      $([ "$INSTALL_SERVICES" -eq 1 ] && echo yes || echo no)"
   echo "Service root:          $SERVICE_ROOT"
+  echo "Package manager:       $PACKAGE_MANAGER (resolved: $RESOLVED_PKG_MGR)"
+  if [ "$PKG_INSTALL_ENABLED" -eq 1 ]; then
+    echo "OS packages:           install via apt"
+    if is_root; then
+      echo "Sudo for packages:     no (running as root)"
+    else
+      echo "Sudo for packages:     yes"
+    fi
+  else
+    echo "OS packages:           skip (check only)"
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run:               yes"
   else
@@ -555,11 +687,13 @@ print_service_install_steps() {
 print_future_service_steps() {
   echo ""
   echo "Not automated by install.sh:"
-  echo "  - Install OS packages (apt/dnf/etc.)"
   echo "  - Install llama.cpp or download GGUF models"
   echo "  - Configure WiFi AP or network"
   if [ "$INSTALL_SERVICES" -eq 0 ]; then
     echo "  - Install env/systemd files (use --install-services to opt in)"
+  fi
+  if [ "$PKG_INSTALL_ENABLED" -eq 0 ]; then
+    echo "  - Non-apt OS package install (use apt-based host or install packages manually)"
   fi
 }
 
@@ -574,6 +708,8 @@ print_dry_run_footer() {
 
 print_plan() {
   print_common_summary
+  print_os_prerequisite_steps
+  echo ""
   print_app_bootstrap_steps
   print_service_install_steps
   print_future_service_steps
@@ -582,13 +718,20 @@ print_plan() {
 
 check_dependencies() {
   if ! command_exists git; then
-    die "git not found. Install git manually; this installer does not install OS packages yet."
+    manual_package_guidance
+    die "git not found"
   fi
   if ! command_exists python3; then
-    die "python3 not found. Install Python 3.12+ manually; this installer does not install OS packages yet."
+    manual_package_guidance
+    die "python3 not found"
+  fi
+  if ! command_exists curl; then
+    manual_package_guidance
+    die "curl not found"
   fi
   if ! python3 -m venv --help >/dev/null 2>&1; then
-    die "python3 -m venv is not available. Install python3-venv manually."
+    manual_package_guidance
+    die "python3 -m venv is not available; install python3-venv"
   fi
 }
 
@@ -655,6 +798,11 @@ require_confirmation_for_mutation() {
     echo "  Install services: yes (service root: $SERVICE_ROOT)"
   else
     echo "  Install services: no"
+  fi
+  if [ "$PKG_INSTALL_ENABLED" -eq 1 ]; then
+    echo "  OS packages:    install via apt ($APT_PACKAGES)"
+  else
+    echo "  OS packages:    skip (check only)"
   fi
   echo ""
   printf "Proceed? [y/N]: "
@@ -837,6 +985,7 @@ print_success_message() {
 }
 
 run_bootstrap() {
+  install_os_prerequisites
   check_dependencies
   check_path_writable "$PREFIX" "prefix"
   check_path_writable "$DATA_DIR" "data dir"
@@ -865,6 +1014,7 @@ main() {
   validate_role
   validate_generated_dir
   validate_service_root
+  resolve_package_manager
 
   if [ "$DRY_RUN" -eq 1 ]; then
     print_plan
@@ -872,6 +1022,8 @@ main() {
   fi
 
   print_common_summary
+  print_os_prerequisite_steps
+  echo ""
   print_app_bootstrap_steps
   print_service_install_steps
   print_future_service_steps
