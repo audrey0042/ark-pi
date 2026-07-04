@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
+from ark_pi import quickstart as ark_quickstart
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.llm_client import diagnostics as llm_diagnostics
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT
@@ -33,6 +34,8 @@ from ark_pi.web.schemas import (
     LlmTestRequest,
     LlmTestResponse,
     PreflightResponse,
+    QuickstartRequest,
+    QuickstartResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -111,6 +114,45 @@ def create_app() -> FastAPI:
             existing_paths=result.existing_paths,
             skipped=result.skipped,
             sample_source_path=result.sample_source_path,
+            preflight=PreflightResponse(
+                role=preflight.role,
+                overall_status=preflight.overall_status,
+                generated_at=preflight.generated_at,
+                network_checks_performed=preflight.network_checks_performed,
+                checks=[
+                    {
+                        "id": check.id,
+                        "label": check.label,
+                        "status": check.status,
+                        "message": check.message,
+                        "details": check.details,
+                    }
+                    for check in preflight.checks
+                ],
+            ),
+            message=result.message,
+        )
+
+    @app.post("/api/quickstart", response_model=QuickstartResponse)
+    def api_quickstart(request: QuickstartRequest) -> QuickstartResponse:
+        result = ark_quickstart.run_quickstart(
+            settings=ark_config.get_settings(),
+            index_name=request.index_name,
+            question=request.question,
+            force=request.force,
+        )
+        preflight = result.preflight
+        return QuickstartResponse(
+            index_name=result.index_name,
+            index_slug=result.index_slug,
+            source_path=result.source_path,
+            chunks_path=result.chunks_path,
+            index_dir=result.index_dir,
+            source_count=result.source_count,
+            chunk_count=result.chunk_count,
+            ask_question=result.ask_question,
+            ask_answer=result.ask_answer,
+            retrieved_count=result.retrieved_count,
             preflight=PreflightResponse(
                 role=preflight.role,
                 overall_status=preflight.overall_status,

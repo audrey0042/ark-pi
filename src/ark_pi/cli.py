@@ -11,6 +11,7 @@ from ark_pi import __version__
 from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
+from ark_pi import quickstart as ark_quickstart
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
@@ -739,6 +740,73 @@ def init(
     if result.sample_source_path:
         console.print(f"Sample source: {result.sample_source_path}")
 
+    console.print(f"Preflight status: [bold]{result.preflight.overall_status}[/bold]")
+    console.print(result.message)
+
+
+@app.command()
+def quickstart(
+    index_name: str = typer.Option(
+        ark_quickstart.DEFAULT_INDEX_NAME,
+        "--index-name",
+        help="Workspace index name for the sample",
+    ),
+    question: str = typer.Option(
+        ark_quickstart.DEFAULT_QUESTION,
+        "--question",
+        help="Smoke-test question for mock ask",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Rebuild the sample index if it already exists",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Initialize storage, build a sample index, and verify the RAG loop with mock LLM."""
+    try:
+        result = ark_quickstart.run_quickstart(
+            settings=ark_config.get_settings(),
+            index_name=index_name,
+            question=question,
+            force=force,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(ark_quickstart.quickstart_to_dict(result)))
+        return
+
+    setup = result.setup
+    if setup.created_paths:
+        created_table = Table(title="Created paths")
+        created_table.add_column("Path")
+        for path in setup.created_paths:
+            created_table.add_row(path)
+        console.print(created_table)
+
+    if setup.existing_paths:
+        existing_table = Table(title="Existing paths")
+        existing_table.add_column("Path")
+        for path in setup.existing_paths:
+            existing_table.add_row(path)
+        console.print(existing_table)
+
+    if setup.skipped:
+        skipped_table = Table(title="Skipped paths")
+        skipped_table.add_column("Path")
+        for path in setup.skipped:
+            skipped_table.add_row(path)
+        console.print(skipped_table)
+
+    console.print(f"Index: [bold]{result.index_name}[/bold] ({result.index_slug})")
+    console.print(f"Chunks: {result.chunk_count} from {result.source_count} source(s)")
+    console.print(f"Index dir: {result.index_dir}")
+    console.print(f"Ask: {result.ask_question}")
+    console.print(f"Retrieved: {result.retrieved_count} chunk(s)")
+    console.print(f"Answer: {result.ask_answer}")
     console.print(f"Preflight status: [bold]{result.preflight.overall_status}[/bold]")
     console.print(result.message)
 

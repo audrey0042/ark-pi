@@ -75,6 +75,24 @@ python -m pytest
 
 Copy `.env.example` to `.env` only if you want to override defaults. Generated output goes under `./data`, `./indexes`, and `./models` locally — all excluded from git.
 
+## Quickstart
+
+One command initializes local storage, creates a sample text source, builds a workspace index, and verifies the RAG loop with the mock LLM — no Pi hardware, models, Chroma, or network required:
+
+```bash
+ark quickstart
+ark quickstart --force   # rebuild if the sample index already exists
+```
+
+Start the web UI and use the **Quickstart** panel for the same flow in a browser:
+
+```bash
+ark serve --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000/
+```
+
+Quickstart uses local sample text under `ARK_SOURCE_DIR` and the mock LLM backend only. Use **LLM diagnostics** (`ark llm test`) when you want to test a real OpenAI-compatible backend such as ark-llm.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:

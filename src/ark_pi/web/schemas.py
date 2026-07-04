@@ -67,6 +67,45 @@ class InitResponse(BaseModel):
     message: str
 
 
+class QuickstartRequest(BaseModel):
+    index_name: str = "ark-pi-sample"
+    question: str = "What can Ark Pi do?"
+    force: bool = False
+
+    @field_validator("index_name")
+    @classmethod
+    def strip_index_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "index_name must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+    @field_validator("question")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            msg = "question must not be empty"
+            raise ValueError(msg)
+        return stripped
+
+
+class QuickstartResponse(BaseModel):
+    index_name: str
+    index_slug: str
+    source_path: str
+    chunks_path: str
+    index_dir: str
+    source_count: int
+    chunk_count: int
+    ask_question: str
+    ask_answer: str
+    retrieved_count: int
+    preflight: PreflightResponse
+    message: str
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str

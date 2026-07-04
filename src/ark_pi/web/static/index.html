@@ -225,6 +225,13 @@
       margin-bottom: 0.35rem;
       font-size: 0.9rem;
     }
+    #quickstart-result {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+      font-size: 0.95rem;
+    }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -568,6 +575,30 @@
           </div>
         </section>
       </div>
+    </section>
+
+    <section class="panel" aria-labelledby="quickstart-heading">
+      <h2 id="quickstart-heading">Quickstart</h2>
+      <p class="hint">
+        One-step setup: initialize local storage, build a sample index from
+        <code>ark-pi-sample.txt</code>, and run a smoke ask with the mock LLM.
+        Does not contact ark-llm or any external network.
+      </p>
+
+      <label for="quickstart-index-name">Index name</label>
+      <input type="text" id="quickstart-index-name" name="index_name" value="ark-pi-sample">
+
+      <label for="quickstart-question">Question</label>
+      <input type="text" id="quickstart-question" name="question" value="What can Ark Pi do?">
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="quickstart-force" name="force">
+        <label for="quickstart-force">Force rebuild sample index</label>
+      </div>
+
+      <button type="button" id="quickstart-button">Run quickstart</button>
+
+      <div id="quickstart-result" class="hidden" aria-live="polite"></div>
     </section>
 
     <section class="panel" aria-labelledby="init-heading">
@@ -1378,6 +1409,58 @@
       var initCreateCatalog = document.getElementById("init-create-catalog");
       var initCreateSample = document.getElementById("init-create-sample");
       var initForce = document.getElementById("init-force");
+
+      var quickstartButton = document.getElementById("quickstart-button");
+      var quickstartResult = document.getElementById("quickstart-result");
+      var quickstartIndexName = document.getElementById("quickstart-index-name");
+      var quickstartQuestion = document.getElementById("quickstart-question");
+      var quickstartForce = document.getElementById("quickstart-force");
+
+      function renderQuickstartResult(data) {
+        quickstartResult.innerHTML = (
+          "<p><strong>" + data.message + "</strong></p>" +
+          "<p><strong>Index:</strong> " + data.index_name + " (" + data.index_slug + ")</p>" +
+          "<p><strong>Chunks:</strong> " + data.chunk_count + " from " + data.source_count + " source(s)</p>" +
+          "<p><strong>Retrieved:</strong> " + data.retrieved_count + " chunk(s)</p>" +
+          "<p><strong>Mock answer:</strong> " + data.ask_answer + "</p>" +
+          "<p><strong>Preflight status:</strong> " + data.preflight.overall_status + "</p>"
+        );
+        quickstartResult.classList.remove("hidden");
+      }
+
+      quickstartButton.addEventListener("click", function () {
+        quickstartButton.disabled = true;
+        quickstartButton.textContent = "Running…";
+        quickstartResult.classList.add("hidden");
+
+        var payload = {
+          index_name: quickstartIndexName.value,
+          question: quickstartQuestion.value,
+          force: quickstartForce.checked
+        };
+
+        fetchJson("/api/quickstart", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              quickstartResult.innerHTML = "<p><strong>Error:</strong> " + parseApiError(result) + "</p>";
+              quickstartResult.classList.remove("hidden");
+              return;
+            }
+            renderQuickstartResult(result.data);
+            return Promise.all([
+              loadPreflight(),
+              loadIndexes(result.data.index_slug)
+            ]);
+          })
+          .catch(function (err) {
+            quickstartResult.innerHTML = "<p><strong>Error:</strong> " + (err.message || "Network error") + "</p>";
+            quickstartResult.classList.remove("hidden");
+          })
+          .finally(function () {
+            quickstartButton.disabled = false;
+            quickstartButton.textContent = "Run quickstart";
+          });
+      });
 
       function renderInitResult(data) {
         var html = "<p><strong>" + data.message + "</strong></p>";

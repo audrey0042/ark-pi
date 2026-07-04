@@ -67,6 +67,10 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert 'id="init-heading"' in html
     assert "/api/init" in html
     assert "Does not configure networking" in html
+    assert "Quickstart" in html
+    assert 'id="quickstart-heading"' in html
+    assert "/api/quickstart" in html
+    assert "mock llm" in html.lower()
     assert "include_context" in html
     assert "include_prompt" in html
 
