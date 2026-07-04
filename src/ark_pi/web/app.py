@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -7,6 +8,8 @@ from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
+from ark_pi.deploy.preflight import run_deployment_preflight
+from ark_pi.deploy.templates import DEFAULT_OUTPUT_DIR, DeployRole
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.llm_client import diagnostics as llm_diagnostics
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT
@@ -20,6 +23,7 @@ from ark_pi.web.errors import register_exception_handlers, search_results_to_ite
 from ark_pi.web.schemas import (
     AskRequest,
     DeleteIndexResponse,
+    DeploymentPreflightResponse,
     HealthResponse,
     IndexBackendOption,
     IndexCatalogDetailResponse,
@@ -170,6 +174,34 @@ def create_app() -> FastAPI:
                 ],
             ),
             message=result.message,
+        )
+
+    @app.get("/api/deploy/preflight", response_model=DeploymentPreflightResponse)
+    def api_deploy_preflight(
+        generated_dir: str = Query(default=str(DEFAULT_OUTPUT_DIR), min_length=1),
+        role: str = Query(default="all", pattern="^(rag|llm|all)$"),
+    ) -> DeploymentPreflightResponse:
+        result = run_deployment_preflight(
+            generated_dir,
+            role=cast(DeployRole, role),
+        )
+        return DeploymentPreflightResponse(
+            role=result.role,
+            generated_dir=result.generated_dir,
+            overall_status=result.overall_status,
+            generated_at=result.generated_at,
+            host_mutations_performed=result.host_mutations_performed,
+            network_checks_performed=result.network_checks_performed,
+            checks=[
+                {
+                    "id": check.id,
+                    "label": check.label,
+                    "status": check.status,
+                    "message": check.message,
+                    "details": check.details,
+                }
+                for check in result.checks
+            ],
         )
 
     @app.get("/api/preflight", response_model=PreflightResponse)

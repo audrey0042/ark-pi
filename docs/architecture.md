@@ -83,6 +83,7 @@ Browser
   -> POST /api/llm/test -> explicit LLM diagnostic prompt
   -> POST /api/init -> create local workspace/source directories (explicit mutation)
   -> POST /api/quickstart -> init + sample ingest + mock ask smoke (explicit mutation)
+  -> GET /api/deploy/preflight -> dry-run deployment template readiness (no host mutations)
   -> GET /api/preflight -> passive appliance readiness checklist (no network)
   -> GET /api/status -> sanitized config, passive LLM summary, and preflight summary (no network probes)
 ```
@@ -101,4 +102,4 @@ The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides 
 
 ## Two-Pi deployment (future)
 
-Production targets two Raspberry Pi nodes: **ark-rag** runs the web UI, FastAPI API, workspace catalog, ingest, indexing, prompt assembly, and LLM client; **ark-llm** runs an OpenAI-compatible llama.cpp server. **Deployment template rendering** (`ark deploy render`) is the first bridge toward that layout: it writes reviewable example env and systemd files for both roles without installing units, calling `systemctl`, or configuring host networking. The ark-rag service template runs `ark serve`; the ark-llm service template is expected to launch llama.cpp with variables from `ark-llm.env`. Actual systemd installation, WiFi AP setup, Ethernet addressing, llama.cpp build, and model placement remain future slices.
+Production targets two Raspberry Pi nodes: **ark-rag** runs the web UI, FastAPI API, workspace catalog, ingest, indexing, prompt assembly, and LLM client; **ark-llm** runs an OpenAI-compatible llama.cpp server. **Deployment template rendering** (`ark deploy render`) writes reviewable example env and systemd files for both roles without installing units, calling `systemctl`, or configuring host networking. **Deployment preflight** (`ark deploy preflight`, `GET /api/deploy/preflight`) inspects those rendered templates and the paths they reference in a dry-run pass before any future install step — it does not render, copy, or enable services. The ark-rag service template runs `ark serve`; the ark-llm service template is expected to launch llama.cpp with variables from `ark-llm.env`. Actual systemd installation, WiFi AP setup, Ethernet addressing, llama.cpp build, and model placement remain future slices.
