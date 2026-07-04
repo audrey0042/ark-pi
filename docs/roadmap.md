@@ -152,27 +152,33 @@ Dry-run install planning for rendered ark-rag and ark-llm templates via CLI (`ar
 
 **Status: done**
 
-## 27. Appliance preflight readiness
+## 27. Deployment bundle
+
+Dry-run deployment bundle generation via CLI (`ark deploy bundle`). Packages rendered templates, deployment preflight JSON, install plan JSON and markdown, checksum manifest, and README into a portable zip for operator review without installing services or mutating host state.
+
+**Status: done**
+
+## 28. Appliance preflight readiness
 
 Passive operator checklist across CLI (`ark preflight`), API (`GET /api/preflight`), and web UI **Appliance preflight** panel. Checks workspace/source paths, catalog health, index roots, source ingest readiness, index backend availability, passive LLM config, import limits, and disk space without network calls or directory creation.
 
 **Status: done**
 
-## 28. WiFi AP and systemd deployment
+## 29. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.
 
-## 29. SimpleWiki ingest
+## 30. SimpleWiki ingest
 
 Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
 
-## 30. Workspace import / restore
+## 31. Workspace import / restore
 
 Restore workspace indexes from Ark Pi export archives. `ark workspace import`, `POST /api/workspace/import`, server-side path UI, and browser upload via `POST /api/workspace/import/upload`. Validates archive structure, remaps catalog paths, merges with existing catalog.
 
 **Status: done**
 
-## 31. Backup / export / import strategy
+## 32. Backup / export / import strategy
 
 Export and restore indexes and config. Support rebuilding from source vs. restoring snapshots.
 

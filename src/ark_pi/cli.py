@@ -13,6 +13,7 @@ from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy import templates as deploy_templates
+from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
 from ark_pi.deploy.plan import (
     build_deployment_install_plan,
     format_plan_json,
@@ -1010,6 +1011,54 @@ def deploy_plan(
         console.print("[bold]Warnings[/bold]")
         for warning in plan.warnings:
             console.print(f"- {warning}")
+
+
+@deploy_app.command("bundle")
+def deploy_bundle(
+    output: Path = typer.Option(
+        ...,
+        "--output",
+        help="Zip output path for the deployment bundle",
+    ),
+    generated_dir: Path = typer.Option(
+        deploy_templates.DEFAULT_OUTPUT_DIR,
+        "--generated-dir",
+        help="Directory containing rendered deployment templates",
+    ),
+    role: DeployRoleOption = typer.Option(
+        DeployRoleOption.all,
+        "--role",
+        help="Package bundle for ark-rag, ark-llm, or both",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing bundle output file",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Build a dry-run deployment bundle zip (does not install or mutate the host)."""
+    try:
+        result = build_deployment_bundle(
+            generated_dir,
+            output_path=output,
+            role=role.value,
+            force=force,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(bundle_result_to_dict(result)))
+        return
+
+    console.print(f"Output: [bold]{result.output_path}[/bold]")
+    console.print(f"Role: {result.role}")
+    console.print(f"Entries: {result.entry_count}")
+    console.print(f"Size: {result.bundle_size_bytes} bytes")
+    console.print(f"Preflight status: [bold]{result.preflight_overall_status}[/bold]")
+    console.print(result.message)
 
 
 @app.command()
