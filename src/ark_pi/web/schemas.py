@@ -106,6 +106,24 @@ class QuickstartResponse(BaseModel):
     message: str
 
 
+class DeploymentPreflightCheckResponse(BaseModel):
+    id: str
+    label: str
+    status: str
+    message: str
+    details: dict[str, Any]
+
+
+class DeploymentPreflightResponse(BaseModel):
+    role: str
+    generated_dir: str
+    overall_status: str
+    generated_at: str
+    host_mutations_performed: bool
+    network_checks_performed: bool
+    checks: list[DeploymentPreflightCheckResponse]
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str

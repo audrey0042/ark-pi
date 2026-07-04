@@ -13,6 +13,10 @@ from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy import templates as deploy_templates
+from ark_pi.deploy.preflight import (
+    deployment_preflight_to_dict,
+    run_deployment_preflight,
+)
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
@@ -862,6 +866,42 @@ def deploy_render(
         table.add_row(generated.path, generated.kind, generated.role)
     console.print(table)
     console.print(result.message)
+
+
+@deploy_app.command("preflight")
+def deploy_preflight(
+    generated_dir: Path = typer.Option(
+        deploy_templates.DEFAULT_OUTPUT_DIR,
+        "--generated-dir",
+        help="Directory containing rendered deployment templates",
+    ),
+    role: DeployRoleOption = typer.Option(
+        DeployRoleOption.all,
+        "--role",
+        help="Preflight rendered templates for ark-rag, ark-llm, or both",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Run dry-run deployment preflight against rendered templates (does not install)."""
+    result = run_deployment_preflight(
+        generated_dir,
+        role=role.value,
+    )
+
+    if as_json:
+        console.print_json(json.dumps(deployment_preflight_to_dict(result)))
+    else:
+        console.print(f"Overall status: [bold]{result.overall_status}[/bold]")
+        table = Table(title="Deployment Preflight")
+        table.add_column("Check", style="bold")
+        table.add_column("Status")
+        table.add_column("Message")
+        for check in result.checks:
+            table.add_row(check.id, check.status, check.message)
+        console.print(table)
+
+    if result.overall_status == "blocked":
+        raise typer.Exit(code=1)
 
 
 @app.command()

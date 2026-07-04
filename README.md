@@ -110,6 +110,19 @@ Generated files include:
 
 Copy and adapt these files manually on each Pi. Installing units under `/etc/systemd/system`, enabling services, and configuring WiFi/Ethernet remain future work. See `deploy/rag-pi/` and `deploy/llm-pi/` for placeholders.
 
+### Deployment preflight
+
+After rendering templates, run dry-run deployment preflight to inspect whether expected files and planned install paths look sane. **This does not install services, render templates automatically, or mutate the host.**
+
+```bash
+ark deploy render --output-dir deploy/generated --force
+ark deploy preflight --generated-dir deploy/generated
+ark deploy preflight --generated-dir deploy/generated --role rag
+ark deploy preflight --generated-dir deploy/generated --role llm --json
+```
+
+Warnings about missing `/opt/ark-pi/.venv/bin/ark`, llama.cpp binaries, or model files are expected on a dev laptop before Pi install. **Appliance preflight** (`ark preflight`) checks workspace/application readiness; **deployment preflight** checks rendered deployment templates and paths named in those files.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
