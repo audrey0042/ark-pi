@@ -21,6 +21,11 @@ from ark_pi.deploy.plan import (
     render_plan_markdown,
     write_plan_output,
 )
+from ark_pi.deploy.bundle import (
+    DeploymentBundleResult,
+    build_deployment_bundle,
+    bundle_result_to_dict,
+)
 
 __all__ = [
     "DEFAULT_OUTPUT_DIR",
@@ -31,7 +36,10 @@ __all__ = [
     "PlanCopyStep",
     "PlanManualCommand",
     "RenderResult",
+    "DeploymentBundleResult",
+    "build_deployment_bundle",
     "build_deployment_install_plan",
+    "bundle_result_to_dict",
     "deployment_preflight_to_dict",
     "format_plan_json",
     "plan_to_dict",

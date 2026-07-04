@@ -138,6 +138,22 @@ ark deploy plan --generated-dir deploy/generated --format json --output /tmp/ark
 
 Commands shown in the plan are manual review steps for a future Pi install. Warnings about missing `/opt` paths are expected on a dev laptop.
 
+### Deployment bundle
+
+After rendering templates, running deployment preflight, and generating an install plan, package everything into a portable review archive. **The bundle does not install services, copy files into system directories, run sudo, call systemctl, or mutate the host.**
+
+```bash
+ark deploy render --output-dir deploy/generated --force
+ark deploy preflight --generated-dir deploy/generated
+ark deploy plan --generated-dir deploy/generated
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-deploy-bundle.zip --force
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-rag-bundle.zip --role rag --force
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-llm-bundle.zip --role llm --force
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-deploy-bundle.zip --json
+```
+
+The zip contains rendered templates for the selected role, deployment preflight JSON, install plan JSON and markdown, a checksum manifest, and a short README. Copy the archive to another machine for human review before any manual Pi install.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
