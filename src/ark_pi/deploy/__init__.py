@@ -26,6 +26,11 @@ from ark_pi.deploy.bundle import (
     build_deployment_bundle,
     bundle_result_to_dict,
 )
+from ark_pi.deploy.bundle_verify import (
+    DeploymentBundleVerifyResult,
+    bundle_verify_result_to_dict,
+    verify_deployment_bundle,
+)
 
 __all__ = [
     "DEFAULT_OUTPUT_DIR",
@@ -37,9 +42,11 @@ __all__ = [
     "PlanManualCommand",
     "RenderResult",
     "DeploymentBundleResult",
+    "DeploymentBundleVerifyResult",
     "build_deployment_bundle",
     "build_deployment_install_plan",
     "bundle_result_to_dict",
+    "bundle_verify_result_to_dict",
     "deployment_preflight_to_dict",
     "format_plan_json",
     "plan_to_dict",
@@ -47,5 +54,6 @@ __all__ = [
     "render_plan_markdown",
     "render_to_dict",
     "run_deployment_preflight",
+    "verify_deployment_bundle",
     "write_plan_output",
 ]

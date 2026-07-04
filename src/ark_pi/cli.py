@@ -14,6 +14,7 @@ from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy import templates as deploy_templates
 from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
+from ark_pi.deploy.bundle_verify import bundle_verify_result_to_dict, verify_deployment_bundle
 from ark_pi.deploy.plan import (
     build_deployment_install_plan,
     format_plan_json,
@@ -1059,6 +1060,38 @@ def deploy_bundle(
     console.print(f"Size: {result.bundle_size_bytes} bytes")
     console.print(f"Preflight status: [bold]{result.preflight_overall_status}[/bold]")
     console.print(result.message)
+
+
+@deploy_app.command("verify-bundle")
+def deploy_verify_bundle(
+    bundle: Path = typer.Option(
+        ...,
+        "--bundle",
+        help="Deployment bundle zip archive to verify",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Verify a deployment bundle zip read-only (does not extract or mutate the host)."""
+    result = verify_deployment_bundle(bundle)
+
+    if as_json:
+        console.print_json(json.dumps(bundle_verify_result_to_dict(result)))
+    else:
+        console.print(f"Overall status: [bold]{result.overall_status}[/bold]")
+        console.print(f"Role: {result.role}")
+        console.print(f"Zip entries: {result.entry_count}")
+        console.print(f"Manifest entries: {result.manifest_entry_count}")
+        table = Table(title="Deployment Bundle Verification")
+        table.add_column("Check", style="bold")
+        table.add_column("Status")
+        table.add_column("Message")
+        for check in result.checks:
+            table.add_row(check.id, check.status, check.message)
+        console.print(table)
+        console.print(result.message)
+
+    if result.overall_status == "invalid":
+        raise typer.Exit(code=1)
 
 
 @app.command()
