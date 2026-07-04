@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake sudo for install.sh tests. Records and executes the wrapped command.
+
+if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+  echo "sudo $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+fi
+
+exec "$@"

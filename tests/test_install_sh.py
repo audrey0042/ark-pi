@@ -22,7 +22,7 @@ def run_install(
     if env:
         merged.update(env)
     return subprocess.run(
-        ["sh", str(INSTALL_SH), *args],
+        ["/bin/sh", str(INSTALL_SH), *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -36,16 +36,26 @@ def fake_helper_env(
     local_repo: Path,
     extra: dict[str, str] | None = None,
     render_log: Path | None = None,
+    command_log: Path | None = None,
 ) -> dict[str, str]:
     env = {
         "PATH": f"{FAKE_BIN}:{os.environ.get('PATH', '')}",
         "ARK_INSTALL_LOCAL_REPO": str(local_repo),
+        "ARK_PI_INSTALL_TEST_EUID": "1000",
     }
     if render_log is not None:
         env["ARK_INSTALL_RENDER_LOG"] = str(render_log)
+    if command_log is not None:
+        env["ARK_PI_INSTALL_COMMAND_LOG"] = str(command_log)
     if extra:
         env.update(extra)
     return env
+
+
+def read_command_log(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
 def test_install_sh_is_executable() -> None:
@@ -61,6 +71,7 @@ def test_help_exits_zero_and_prints_usage() -> None:
     assert "--dry-run" in result.stdout
     assert "--generated-dir" in result.stdout
     assert "--install-services" in result.stdout
+    assert "--no-os-packages" in result.stdout
     assert "systemd" in result.stdout.lower() or "service" in result.stdout.lower()
 
 
@@ -141,6 +152,255 @@ def test_dry_run_does_not_create_prefix_data_or_generated_dirs(tmp_path: Path) -
     assert not prefix.exists()
     assert not data_dir.exists()
     assert not generated.exists()
+
+
+def test_dry_run_prints_apt_package_plan() -> None:
+    result = run_install("--role", "rag", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "apt-get update" in result.stdout
+    assert "python3-venv" in result.stdout
+    assert "ca-certificates" in result.stdout
+
+
+def test_dry_run_does_not_call_fake_apt_get(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+    result = run_install("--role", "rag", "--dry-run", env=env)
+    assert result.returncode == 0, result.stderr
+    assert read_command_log(command_log) == ""
+
+
+def test_no_os_packages_dry_run_skips_apt_install_line() -> None:
+    result = run_install("--role", "rag", "--no-os-packages", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "Skip apt package install" in result.stdout
+
+
+def test_package_manager_none_dry_run() -> None:
+    result = run_install("--role", "rag", "--package-manager", "none", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "resolved: none" in result.stdout
+
+
+def test_package_manager_missing_value_exits_nonzero() -> None:
+    result = run_install("--package-manager")
+    assert result.returncode != 0
+    assert "missing value" in result.stderr.lower()
+
+
+def test_package_manager_invalid_exits_nonzero() -> None:
+    result = run_install("--role", "rag", "--package-manager", "yum", "--dry-run")
+    assert result.returncode != 0
+    assert "unsupported" in result.stderr.lower()
+
+
+def test_package_manager_auto_and_apt_accepted_dry_run() -> None:
+    assert run_install("--role", "rag", "--package-manager", "auto", "--dry-run").returncode == 0
+    assert run_install("--role", "rag", "--package-manager", "apt", "--dry-run").returncode == 0
+
+
+def test_apt_install_runs_before_git_clone(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "apt-get update" in log
+    assert "apt-get install -y" in log
+    assert "ca-certificates" in log
+    assert "python3-venv" in log
+    assert "python3-pip" in log
+    assert log.index("apt-get update") < log.index("git clone")
+
+
+def test_no_os_packages_skips_apt_get(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--no-os-packages",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "apt-get" not in read_command_log(command_log)
+
+
+def test_package_manager_none_skips_apt_get(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--package-manager",
+        "none",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "apt-get" not in read_command_log(command_log)
+
+
+def test_apt_install_failure_exits_nonzero(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    env = fake_helper_env(REPO_ROOT, {"ARK_PI_INSTALL_APT_FAIL": "1"})
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "apt-get" in result.stderr.lower()
+
+
+def test_non_root_uses_sudo_for_apt_get(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(
+        REPO_ROOT,
+        command_log=command_log,
+        extra={"ARK_PI_INSTALL_TEST_EUID": "1000"},
+    )
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "sudo apt-get update" in log
+    assert "sudo apt-get install -y" in log
+
+
+def test_root_does_not_use_sudo_for_apt_get(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(
+        REPO_ROOT,
+        command_log=command_log,
+        extra={"ARK_PI_INSTALL_TEST_EUID": "0"},
+    )
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert not any(line.startswith("sudo ") for line in log.splitlines())
+    assert "apt-get update" in log
+
+
+def test_sudo_required_but_missing_exits_nonzero(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    env = fake_helper_env(
+        REPO_ROOT,
+        extra={
+            "ARK_PI_INSTALL_TEST_EUID": "1000",
+            "ARK_PI_INSTALL_TEST_NO_SUDO": "1",
+        },
+    )
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "sudo required" in result.stderr.lower()
+
+
+def test_package_manager_none_missing_commands_shows_guidance(tmp_path: Path) -> None:
+    empty_bin = tmp_path / "empty_bin"
+    empty_bin.mkdir()
+    uname = empty_bin / "uname"
+    uname.write_text('#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo aarch64;; esac\n', encoding="utf-8")
+    uname.chmod(0o755)
+    env = fake_helper_env(REPO_ROOT)
+    env["PATH"] = str(empty_bin)
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(tmp_path / "prefix"),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--package-manager",
+        "none",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "Install these packages manually" in result.stderr
+    assert "python3-venv" in result.stderr
 
 
 def test_dry_run_includes_clone_venv_render_and_data_dirs() -> None:

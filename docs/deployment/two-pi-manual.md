@@ -8,7 +8,7 @@ Laptop-only smoke test first: [README quickstart](../../README.md#quickstart).
 
 This is manual steps, not an installer. I haven't run the full stack end-to-end on real Pi hardware from this repo. Paths and systemd snippets are examples to edit.
 
-`install.sh` can bootstrap the app, render templates, and with `--install-services` install generated env/systemd files (use `--service-root /tmp/...` to review without touching real `/etc`). llama.cpp, models, and network setup remain manual here.
+`install.sh` can install base OS prerequisites on apt-based hosts (Raspberry Pi OS, Debian, Ubuntu), bootstrap the app, render templates, and with `--install-services` install generated env/systemd files (use `--service-root /tmp/...` to review without touching real `/etc`). Use `--no-os-packages` when packages are already installed. llama.cpp, models, and network setup remain manual here.
 
 ## What the CLI does and doesn't do
 

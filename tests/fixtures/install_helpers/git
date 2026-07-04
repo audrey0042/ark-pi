@@ -6,7 +6,14 @@ die() {
   exit 1
 }
 
+log_command() {
+  if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+    echo "git $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+  fi
+}
+
 if [ "$1" = "clone" ]; then
+  log_command "$@"
   shift
   while [ $# -gt 0 ]; do
     case "$1" in

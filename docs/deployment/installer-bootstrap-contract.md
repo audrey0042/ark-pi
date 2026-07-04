@@ -1,20 +1,23 @@
 # Installer bootstrap contract
 
-Design doc for `install.sh`. **Current script:** app bootstrap, deploy template render, and optional service file install (`--install-services`). OS packages, llama.cpp, model download, and network/WiFi remain manual.
+Design doc for `install.sh`. **Current script:** apt-based OS prerequisite install (Debian-family), app bootstrap, deploy template render, and optional service file install (`--install-services`). llama.cpp, model download, and network/WiFi remain manual.
 
 Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual.md).
 
 ## Status
 
-- `install.sh` at repo root. App bootstrap + `ark deploy render` into `--generated-dir`.
+- `install.sh` at repo root. On apt-based systems, installs minimal OS packages before app bootstrap.
+- App bootstrap + `ark deploy render` into `--generated-dir`.
 - `--install-services` copies rendered env/systemd files under `--service-root` (default `/`). Backs up existing files. `systemctl daemon-reload/enable/start` when service root is `/` (respects `--no-enable`, `--no-start`).
 - `--service-root /tmp/...` for safe testing: files only, no systemctl.
-- `--dry-run` prints the plan with no mutations. Non-interactive install requires `--yes`.
-- Not implemented: OS package install, llama.cpp, model fetch, WiFi/network, auth.
+- `--no-os-packages` / `--package-manager none` skip apt and verify commands only. `--package-manager auto` (default) uses apt when `apt-get` exists.
+- `--dry-run` prints the plan (including apt commands when enabled) with no mutations. Non-interactive install requires `--yes`.
+- Not implemented: llama.cpp, model fetch, WiFi/network, auth, non-apt package managers.
 - [two-pi-manual.md](two-pi-manual.md) stays the full deployment guide.
 
 ```bash
 sh install.sh --role rag --dry-run
+sh install.sh --role rag --no-os-packages --dry-run
 sh install.sh --role rag --install-services --dry-run
 sh install.sh --role rag --service-root /tmp/ark-pi-service-root --install-services --yes
 ```
@@ -72,6 +75,8 @@ Flags after the script name use `sh -s --` when piping from curl.
 | `--service-root PATH` | Root for service paths (default `/`; use `/tmp/...` for testing) |
 | `--no-enable` | Skip `systemctl enable` when installing to `/` |
 | `--no-start` | Skip `systemctl start` when installing to `/` |
+| `--no-os-packages` | Skip apt install; verify `git`, `python3`, `curl`, and `python3 -m venv` only |
+| `--package-manager auto\|apt\|none` | Package manager mode (default: `auto`; `none` = skip OS packages) |
 | `--help` | Usage and exit |
 
 Defaults should be boring and printed in the summary. All flags must work when passed as `sh -s -- FLAG ...` after a curl pipe.
@@ -86,8 +91,8 @@ Defaults should be boring and printed in the summary. All flags must work when p
 ## Dry-run behavior
 
 - Must not mutate the host (no packages, clones, copies, systemd, network, no `ark deploy render`).
-- Print planned actions: clone/update, venv, `pip install`, `ark deploy render`, data dirs. Future: env/service copies, enable/start.
-- Print detected OS, architecture, role, `--prefix`, `--data-dir`, `--generated-dir`, branch, repo.
+- Print planned actions: apt package install (when enabled), clone/update, venv, `pip install`, `ark deploy render`, data dirs. Future: env/service copies, enable/start.
+- Print detected OS, architecture, role, package manager, `--prefix`, `--data-dir`, `--generated-dir`, branch, repo.
 - Exit nonzero if the role or platform is unsupported.
 
 ## Safety rules
@@ -105,16 +110,17 @@ Defaults should be boring and printed in the summary. All flags must work when p
 
 1. Parse flags.
 2. Detect OS and architecture.
-3. Prompt for role if needed.
-4. Build install plan (role-specific steps).
-5. Print summary.
-6. Exit if `--dry-run`.
-7. Ask confirmation unless `--yes`.
-8. Clone or update repo at `--prefix`.
-9. Create Python virtualenv and `pip install` Ark Pi.
-11. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
-12. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
-13. OS package install (future).
+3. Resolve package manager (`auto` / `apt` / `none`).
+4. Prompt for role if needed.
+5. Build install plan (role-specific steps + OS packages when enabled).
+6. Print summary.
+7. Exit if `--dry-run`.
+8. Ask confirmation unless `--yes`.
+9. Install OS prerequisite packages via apt (when enabled; uses sudo when not root).
+10. Clone or update repo at `--prefix`.
+11. Create Python virtualenv and `pip install` Ark Pi.
+12. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
+13. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
 14. llama.cpp / model fetch / network (future).
 15. Print validation commands.
 
@@ -178,4 +184,4 @@ For `llm` or `both` with a real backend configured, also suggest `ark llm test -
 
 - [two-pi-manual.md](two-pi-manual.md): current manual path
 - [README deployment artifacts](../../README.md#deployment-artifacts): `ark deploy *` review commands
-- [roadmap §36](../roadmap.md#36-installer-bootstrap): app bootstrap done; service install future
+- [roadmap §36](../roadmap.md#36-installer-bootstrap): app bootstrap + OS packages + render + service files done; llm/network future

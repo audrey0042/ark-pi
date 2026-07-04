@@ -214,16 +214,23 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 `install.sh` at repo root.
 
-**App bootstrap + deploy render + optional service install (done):** clone, venv, pip, data dirs, `ark deploy render`, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
+**App bootstrap + deploy render + optional service install + apt OS prerequisites (done):** minimal packages on Debian-family hosts, clone, venv, pip, data dirs, `ark deploy render`, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
 
 ```bash
 sh install.sh --role rag --dry-run
+sh install.sh --role rag --no-os-packages --dry-run
 sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-root --yes
 ```
 
-**Future (not started):** OS packages, llama.cpp, model download, WiFi/network. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+**Future (not started):** llama.cpp, model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: app bootstrap + render + service files done; OS/llm/network not started**
+**Status: OS packages + app bootstrap + render + service files done; llm/network not started**
+
+## 42. Install OS prerequisites
+
+Apt-based OS package install on Debian-family systems: `ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`. Flags: `--no-os-packages`, `--package-manager auto|apt|none`. Dry-run prints apt plan without calling apt or sudo.
+
+**Status: done**
 
 ## 41. Install service files
 
