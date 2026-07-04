@@ -27,6 +27,55 @@ if [ "$1" = "--help" ]; then
   echo "fake ark help"
   exit 0
 fi
+if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
+  if [ "${ARK_INSTALL_RENDER_FAIL:-0}" = "1" ]; then
+    echo "fake render failed" >&2
+    exit 1
+  fi
+  _output=""
+  _role=""
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --output-dir=*)
+        _output="${1#*=}"
+        shift
+        ;;
+      --output-dir)
+        _output="$2"
+        shift 2
+        ;;
+      --role=*)
+        _role="${1#*=}"
+        shift
+        ;;
+      --role)
+        _role="$2"
+        shift 2
+        ;;
+      --force)
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  if [ -n "${ARK_INSTALL_RENDER_LOG:-}" ]; then
+    echo "deploy render --output-dir $_output --role $_role --force" >> "$ARK_INSTALL_RENDER_LOG"
+  fi
+  if [ -n "$_output" ]; then
+    mkdir -p "$_output"
+    touch "$_output/.rendered"
+    if [ "${ARK_INSTALL_RENDER_SKIP_TEMPLATES:-0}" != "1" ]; then
+      echo "ARK_ROLE=rag" > "$_output/ark-rag.env"
+      echo "[Service]" > "$_output/ark-rag.service"
+      echo "ARK_ROLE=llm" > "$_output/ark-llm.env"
+      echo "[Service]" > "$_output/ark-llm.service"
+    fi
+  fi
+  exit 0
+fi
 exit 0
 EOF
   chmod +x "$_venv/bin/ark"

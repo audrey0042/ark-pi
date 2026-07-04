@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# Ark Pi install bootstrap (v1).
-# App bootstrap only: clone/update repo, venv, pip install, data dirs.
-# Does not install OS packages, systemd units, llama.cpp, or models.
+# Ark Pi install bootstrap (v3).
+# App bootstrap, deploy render, optional service file install (--install-services).
+# Does not install OS packages, llama.cpp, or models.
 #
 
 set -u
@@ -14,6 +14,9 @@ BRANCH="main"
 REPO="https://github.com/audrey0042/ark-pi.git"
 PREFIX="/opt/ark-pi"
 DATA_DIR="/srv/ark-pi"
+GENERATED_DIR=""
+SERVICE_ROOT="/"
+INSTALL_SERVICES=0
 NO_ENABLE=0
 NO_START=0
 
@@ -25,30 +28,33 @@ usage() {
 Ark Pi install bootstrap
 
 Bootstraps the Ark Pi app: clone/update repo, Python venv, pip install -e,
-and role-specific data directories under --prefix and --data-dir.
+role-specific data directories, deployment template render, and optional
+env/systemd file install.
 
-Does not install OS packages, write /etc files, install systemd units,
-run sudo/systemctl, install llama.cpp, or download models.
+Does not install OS packages, llama.cpp, or download models.
 
 Usage:
   sh install.sh [options]
 
 Options:
-  --role rag|llm|both    Install role (required in non-interactive mode)
-  --dry-run              Print plan only; no host changes
-  --yes                  Skip confirmation (required for non-interactive install)
-  --branch BRANCH        Git branch (default: main)
-  --repo URL             Git repository URL
-  --prefix PATH          Install prefix (default: /opt/ark-pi)
-  --data-dir PATH        Data root (default: /srv/ark-pi)
-  --no-enable            Reserved: skip systemctl enable (service slice, not implemented)
-  --no-start             Reserved: skip systemctl start (service slice, not implemented)
-  --help                 Show this help
+  --role rag|llm|both       Install role (required in non-interactive mode)
+  --dry-run                 Print plan only; no host changes
+  --yes                     Skip confirmation (required for non-interactive install)
+  --branch BRANCH           Git branch (default: main)
+  --repo URL                Git repository URL
+  --prefix PATH             Install prefix (default: /opt/ark-pi)
+  --data-dir PATH           Data root (default: /srv/ark-pi)
+  --generated-dir PATH      Render templates here (default: $DATA_DIR/deploy/generated)
+  --install-services        Install rendered env/systemd files (explicit opt-in)
+  --service-root PATH       Root for service files (default: /)
+  --no-enable               Skip systemctl enable (when installing to /)
+  --no-start                Skip systemctl start (when installing to /)
+  --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
-  sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
-  curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
+  sh install.sh --role rag --install-services --dry-run
+  sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --service-root /tmp/ark-pi-service-root --install-services --yes
 EOF
 }
 
@@ -59,6 +65,10 @@ die() {
 
 is_interactive() {
   [ -t 0 ]
+}
+
+is_root() {
+  [ "$(id -u)" -eq 0 ]
 }
 
 command_exists() {
@@ -78,6 +88,10 @@ parse_args() {
         ;;
       --yes)
         YES=1
+        shift
+        ;;
+      --install-services)
+        INSTALL_SERVICES=1
         shift
         ;;
       --no-enable)
@@ -143,6 +157,28 @@ parse_args() {
         DATA_DIR="$2"
         shift 2
         ;;
+      --generated-dir=*)
+        GENERATED_DIR="${1#*=}"
+        shift
+        ;;
+      --generated-dir)
+        if [ $# -lt 2 ]; then
+          die "missing value for --generated-dir"
+        fi
+        GENERATED_DIR="$2"
+        shift 2
+        ;;
+      --service-root=*)
+        SERVICE_ROOT="${1#*=}"
+        shift
+        ;;
+      --service-root)
+        if [ $# -lt 2 ]; then
+          die "missing value for --service-root"
+        fi
+        SERVICE_ROOT="$2"
+        shift 2
+        ;;
       --)
         shift
         if [ $# -gt 0 ]; then
@@ -157,6 +193,12 @@ parse_args() {
         ;;
     esac
   done
+}
+
+set_generated_dir_default() {
+  if [ -z "$GENERATED_DIR" ]; then
+    GENERATED_DIR="$DATA_DIR/deploy/generated"
+  fi
 }
 
 normalize_role_choice() {
@@ -214,6 +256,14 @@ validate_role() {
   esac
 }
 
+deploy_role_for_install_role() {
+  case "$ROLE" in
+    rag) echo rag ;;
+    llm) echo llm ;;
+    both) echo all ;;
+  esac
+}
+
 detect_platform() {
   OS=$(uname -s 2>/dev/null || echo unknown)
   ARCH=$(uname -m 2>/dev/null || echo unknown)
@@ -228,13 +278,177 @@ detect_platform() {
   esac
 }
 
+resolve_path_best_effort() {
+  _path="$1"
+  if [ -e "$_path" ]; then
+    if [ -d "$_path" ]; then
+      cd "$_path" && pwd -P
+      return 0
+    fi
+    die "path is not a directory: $_path"
+  fi
+  _parent=$(dirname "$_path")
+  _base=$(basename "$_path")
+  if [ -e "$_parent" ]; then
+    _resolved_parent=$(cd "$_parent" && pwd -P)
+    echo "$_resolved_parent/$_base"
+    return 0
+  fi
+  echo "$_path"
+}
+
+path_is_under() {
+  _child="$1"
+  _parent="$2"
+  case "$_child" in
+    "$_parent"|"$_parent"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_generated_dir() {
+  if [ -z "$GENERATED_DIR" ]; then
+    die "generated dir must not be empty"
+  fi
+
+  _gen=$(resolve_path_best_effort "$GENERATED_DIR")
+  _prefix=$(resolve_path_best_effort "$PREFIX")
+  _data=$(resolve_path_best_effort "$DATA_DIR")
+
+  case "$_gen" in
+    /|/etc|/etc/*|/usr|/usr/*|/lib|/lib/*)
+      die "refusing unsafe generated dir: $_gen"
+      ;;
+  esac
+
+  if path_is_under "$_gen" "$_prefix"; then
+    return 0
+  fi
+  if path_is_under "$_gen" "$_data"; then
+    return 0
+  fi
+  case "$_gen" in
+    /tmp|/tmp/*)
+      return 0
+      ;;
+  esac
+
+  die "generated dir must be under --prefix, --data-dir, or /tmp: $_gen"
+}
+
+validate_service_root() {
+  if [ -z "$SERVICE_ROOT" ]; then
+    die "service root must not be empty"
+  fi
+  case "$SERVICE_ROOT" in
+    /*) ;;
+    *)
+      die "service root must be an absolute path: $SERVICE_ROOT"
+      ;;
+  esac
+  case "$SERVICE_ROOT" in
+    .|/etc|/etc/*|/usr|/usr/*|/lib|/lib/*|/opt|/opt/*|/srv|/srv/*)
+      die "refusing unsafe service root: $SERVICE_ROOT"
+      ;;
+  esac
+}
+
+service_dest() {
+  _suffix="$1"
+  if [ "$SERVICE_ROOT" = "/" ]; then
+    echo "$_suffix"
+    return 0
+  fi
+  echo "$SERVICE_ROOT$_suffix"
+}
+
+run_privileged() {
+  if [ "$SERVICE_ROOT" = "/" ]; then
+    if is_root; then
+      "$@"
+      return $?
+    fi
+    if command_exists sudo; then
+      sudo "$@"
+      return $?
+    fi
+    die "root or sudo required to install services under /"
+  fi
+  "$@"
+}
+
+timestamp_for_backup() {
+  date +%Y%m%d%H%M%S
+}
+
+install_service_pair() {
+  _filename="$1"
+  _dest_suffix="$2"
+  _mode="$3"
+  _src="$GENERATED_DIR/$_filename"
+  _dest=$(service_dest "$_dest_suffix")
+  if [ ! -f "$_src" ]; then
+    die "missing generated service file: $_src"
+  fi
+  _dest_dir=$(dirname "$_dest")
+  run_privileged mkdir -p "$_dest_dir"
+  if [ -f "$_dest" ]; then
+    _ts=$(timestamp_for_backup)
+    run_privileged cp "$_dest" "$_dest.bak.$_ts"
+  fi
+  run_privileged cp "$_src" "$_dest"
+  run_privileged chmod "$_mode" "$_dest"
+}
+
+install_rag_service_files() {
+  install_service_pair ark-rag.env /etc/ark-pi/ark-rag.env 0640
+  install_service_pair ark-rag.service /etc/systemd/system/ark-rag.service 0644
+}
+
+install_llm_service_files() {
+  install_service_pair ark-llm.env /etc/ark-pi/ark-llm.env 0640
+  install_service_pair ark-llm.service /etc/systemd/system/ark-llm.service 0644
+}
+
+print_service_file_plan() {
+  _filename="$1"
+  _dest_suffix="$2"
+  _mode="$3"
+  _dest=$(service_dest "$_dest_suffix")
+  echo "  Copy $GENERATED_DIR/$_filename -> $_dest (mode $_mode)"
+  echo "    backup existing destination to $_dest.bak.TIMESTAMP if present"
+}
+
+print_rag_service_plan() {
+  print_service_file_plan ark-rag.env /etc/ark-pi/ark-rag.env 0640
+  print_service_file_plan ark-rag.service /etc/systemd/system/ark-rag.service 0644
+}
+
+print_llm_service_plan() {
+  print_service_file_plan ark-llm.env /etc/ark-pi/ark-llm.env 0640
+  print_service_file_plan ark-llm.service /etc/systemd/system/ark-llm.service 0644
+}
+
+service_unit_names_for_role() {
+  case "$ROLE" in
+    rag) echo ark-rag.service ;;
+    llm) echo ark-llm.service ;;
+    both)
+      echo ark-rag.service
+      echo ark-llm.service
+      ;;
+  esac
+}
+
 print_common_summary() {
   echo "Ark Pi install bootstrap"
   echo ""
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run: no host changes will be made."
+  elif [ "$INSTALL_SERVICES" -eq 1 ]; then
+    echo "App bootstrap + service file install."
   else
-    echo "App bootstrap: writes only under --prefix and --data-dir."
+    echo "App bootstrap: writes under --prefix, --data-dir, and --generated-dir."
   fi
   echo ""
   echo "Detected OS:           $OS"
@@ -244,6 +458,9 @@ print_common_summary() {
   echo "Branch:                $BRANCH"
   echo "Prefix:                $PREFIX"
   echo "Data dir:              $DATA_DIR"
+  echo "Generated dir:         $GENERATED_DIR"
+  echo "Install services:      $([ "$INSTALL_SERVICES" -eq 1 ] && echo yes || echo no)"
+  echo "Service root:          $SERVICE_ROOT"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run:               yes"
   else
@@ -254,15 +471,17 @@ print_common_summary() {
   else
     echo "Yes:                   no"
   fi
-  if [ "$NO_ENABLE" -eq 1 ]; then
-    echo "Enable services:       no (--no-enable, reserved for future service slice)"
-  else
-    echo "Enable services:       reserved for future service slice"
-  fi
-  if [ "$NO_START" -eq 1 ]; then
-    echo "Start services:        no (--no-start, reserved for future service slice)"
-  else
-    echo "Start services:        reserved for future service slice"
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    if [ "$NO_ENABLE" -eq 1 ]; then
+      echo "Enable services:       no (--no-enable)"
+    else
+      echo "Enable services:       yes (when service root is /)"
+    fi
+    if [ "$NO_START" -eq 1 ]; then
+      echo "Start services:        no (--no-start)"
+    else
+      echo "Start services:        yes (when service root is /)"
+    fi
   fi
   echo ""
 }
@@ -284,6 +503,11 @@ data_dirs_for_role() {
   esac
 }
 
+render_deploy_command() {
+  _deploy_role=$(deploy_role_for_install_role)
+  echo "$PREFIX/.venv/bin/ark deploy render --output-dir $GENERATED_DIR --role $_deploy_role --force"
+}
+
 print_app_bootstrap_steps() {
   echo "App bootstrap steps:"
   echo "  1. Clone or update Ark Pi at $PREFIX from $REPO (branch $BRANCH)."
@@ -294,27 +518,64 @@ print_app_bootstrap_steps() {
     echo "       $_dir"
   done
   echo "  5. Verify $PREFIX/.venv/bin/ark --help"
+  echo "  6. Run $(render_deploy_command)"
+}
+
+print_service_install_steps() {
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    return 0
+  fi
+  echo ""
+  echo "Service file install steps:"
+  case "$ROLE" in
+    rag) print_rag_service_plan ;;
+    llm) print_llm_service_plan ;;
+    both)
+      print_rag_service_plan
+      print_llm_service_plan
+      ;;
+  esac
+  if [ "$SERVICE_ROOT" = "/" ]; then
+    echo "  systemctl daemon-reload"
+    if [ "$NO_ENABLE" -eq 0 ]; then
+      for _unit in $(service_unit_names_for_role); do
+        echo "  systemctl enable $_unit"
+      done
+    fi
+    if [ "$NO_START" -eq 0 ]; then
+      for _unit in $(service_unit_names_for_role); do
+        echo "  systemctl start $_unit"
+      done
+    fi
+  else
+    echo "  Skip systemctl (service root is not /)"
+  fi
 }
 
 print_future_service_steps() {
   echo ""
-  echo "Future steps (not implemented in this slice):"
+  echo "Not automated by install.sh:"
   echo "  - Install OS packages (apt/dnf/etc.)"
-  echo "  - Render and install env/systemd files under /etc"
-  echo "  - systemctl enable/start services"
   echo "  - Install llama.cpp or download GGUF models"
   echo "  - Configure WiFi AP or network"
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    echo "  - Install env/systemd files (use --install-services to opt in)"
+  fi
 }
 
 print_dry_run_footer() {
   echo ""
   echo "No changes were made."
-  echo "Service install remains manual: docs/deployment/two-pi-manual.md"
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    echo "Use --install-services to install rendered env/systemd files."
+  fi
+  echo "Manual guide: docs/deployment/two-pi-manual.md"
 }
 
 print_plan() {
   print_common_summary
   print_app_bootstrap_steps
+  print_service_install_steps
   print_future_service_steps
   print_dry_run_footer
 }
@@ -386,9 +647,15 @@ require_confirmation_for_mutation() {
     die "refusing to modify host in non-interactive mode without --yes (use --yes or --dry-run)"
   fi
   echo "This will bootstrap the Ark Pi app:"
-  echo "  Prefix:   $PREFIX"
-  echo "  Data dir: $DATA_DIR"
-  echo "  Role:     $ROLE"
+  echo "  Prefix:           $PREFIX"
+  echo "  Data dir:         $DATA_DIR"
+  echo "  Generated dir:    $GENERATED_DIR"
+  echo "  Role:             $ROLE"
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    echo "  Install services: yes (service root: $SERVICE_ROOT)"
+  else
+    echo "  Install services: no"
+  fi
   echo ""
   printf "Proceed? [y/N]: "
   if ! read -r _answer; then
@@ -434,25 +701,134 @@ create_data_dirs() {
   done
 }
 
+run_deploy_render() {
+  _deploy_role=$(deploy_role_for_install_role)
+  _ark="$PREFIX/.venv/bin/ark"
+  if [ ! -x "$_ark" ]; then
+    die "ark CLI missing at $_ark"
+  fi
+  mkdir -p "$GENERATED_DIR"
+  if ! "$_ark" deploy render --output-dir "$GENERATED_DIR" --role "$_deploy_role" --force; then
+    die "ark deploy render failed"
+  fi
+}
+
+validate_generated_service_files() {
+  case "$ROLE" in
+    rag)
+      [ -f "$GENERATED_DIR/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
+      [ -f "$GENERATED_DIR/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
+      ;;
+    llm)
+      [ -f "$GENERATED_DIR/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
+      [ -f "$GENERATED_DIR/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
+      ;;
+    both)
+      [ -f "$GENERATED_DIR/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
+      [ -f "$GENERATED_DIR/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
+      [ -f "$GENERATED_DIR/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
+      [ -f "$GENERATED_DIR/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
+      ;;
+  esac
+}
+
+install_service_files() {
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    return 0
+  fi
+  validate_generated_service_files
+  case "$ROLE" in
+    rag) install_rag_service_files ;;
+    llm) install_llm_service_files ;;
+    both)
+      install_rag_service_files
+      install_llm_service_files
+      ;;
+  esac
+}
+
+run_systemctl() {
+  if ! run_privileged systemctl "$@"; then
+    die "systemctl $* failed"
+  fi
+}
+
+run_systemctl_actions() {
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    return 0
+  fi
+  if [ "$SERVICE_ROOT" != "/" ]; then
+    echo ""
+    echo "Service files installed under redirected root: $SERVICE_ROOT"
+    echo "Skipping systemctl (service root is not /)."
+    return 0
+  fi
+  run_systemctl daemon-reload
+  if [ "$NO_ENABLE" -eq 0 ]; then
+    for _unit in $(service_unit_names_for_role); do
+      run_systemctl enable "$_unit"
+    done
+  fi
+  if [ "$NO_START" -eq 0 ]; then
+    for _unit in $(service_unit_names_for_role); do
+      run_systemctl start "$_unit"
+    done
+  fi
+}
+
 print_validation_commands() {
+  _deploy_role=$(deploy_role_for_install_role)
+  _ark="$PREFIX/.venv/bin/ark"
   echo ""
   echo "Validation commands:"
-  echo "  $PREFIX/.venv/bin/ark preflight"
-  echo "  $PREFIX/.venv/bin/ark llm status"
-  echo "  $PREFIX/.venv/bin/ark llm test --llm-backend mock"
+  echo "  $_ark preflight"
+  echo "  $_ark llm status"
+  echo "  $_ark llm test --llm-backend mock"
+  echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"
+  echo "  $_ark deploy plan --generated-dir $GENERATED_DIR --role $_deploy_role"
   echo "  curl http://127.0.0.1:8000/healthz"
   echo "  curl http://127.0.0.1:8000/api/status"
   echo ""
-  echo "Service install (systemd, /etc) is not implemented."
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    echo "Review installed env and systemd files under $SERVICE_ROOT before production use."
+    if [ "$SERVICE_ROOT" != "/" ]; then
+      echo "Service files are under redirected root for review/testing."
+    fi
+  else
+    echo "Review generated env and systemd files before installing services."
+    echo "Use --install-services to install rendered files."
+  fi
+  echo "llama.cpp, models, and network setup remain manual."
   echo "For full deployment, see docs/deployment/two-pi-manual.md"
 }
 
 print_success_message() {
   echo ""
   echo "App bootstrap complete."
-  echo "Prefix:   $PREFIX"
-  echo "Data dir: $DATA_DIR"
-  echo "Role:     $ROLE"
+  echo "Prefix:            $PREFIX"
+  echo "Data dir:          $DATA_DIR"
+  echo "Generated dir:     $GENERATED_DIR"
+  echo "Role:              $ROLE"
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    echo "Service root:      $SERVICE_ROOT"
+    echo "Installed service files:"
+    case "$ROLE" in
+      rag)
+        echo "  $(service_dest /etc/ark-pi/ark-rag.env)"
+        echo "  $(service_dest /etc/systemd/system/ark-rag.service)"
+        ;;
+      llm)
+        echo "  $(service_dest /etc/ark-pi/ark-llm.env)"
+        echo "  $(service_dest /etc/systemd/system/ark-llm.service)"
+        ;;
+      both)
+        echo "  $(service_dest /etc/ark-pi/ark-rag.env)"
+        echo "  $(service_dest /etc/systemd/system/ark-rag.service)"
+        echo "  $(service_dest /etc/ark-pi/ark-llm.env)"
+        echo "  $(service_dest /etc/systemd/system/ark-llm.service)"
+        ;;
+    esac
+  fi
   echo "Created data directories:"
   for _dir in $(data_dirs_for_role); do
     echo "  $_dir"
@@ -464,15 +840,20 @@ run_bootstrap() {
   check_dependencies
   check_path_writable "$PREFIX" "prefix"
   check_path_writable "$DATA_DIR" "data dir"
+  check_path_writable "$GENERATED_DIR" "generated dir"
   ensure_clean_prefix
   clone_or_update_repo
   create_venv_and_install
   create_data_dirs
+  run_deploy_render
+  install_service_files
+  run_systemctl_actions
   print_success_message
 }
 
 main() {
   parse_args "$@"
+  set_generated_dir_default
   detect_platform
   if [ -z "$ROLE" ]; then
     if is_interactive; then
@@ -482,6 +863,8 @@ main() {
     fi
   fi
   validate_role
+  validate_generated_dir
+  validate_service_root
 
   if [ "$DRY_RUN" -eq 1 ]; then
     print_plan
@@ -490,6 +873,7 @@ main() {
 
   print_common_summary
   print_app_bootstrap_steps
+  print_service_install_steps
   print_future_service_steps
   echo ""
   require_confirmation_for_mutation

@@ -8,7 +8,7 @@ The point is offline Q&A from your own index when WAN is down (e.g. *"how do I p
 
 Working now: laptop MVP (CLI, API, web UI, workspace tools, mock LLM), deploy review commands (render through unpack), and [manual two-Pi docs](deployment/two-pi-manual.md). The deploy commands are helpers for review, not the end product.
 
-Still TODO: service install (systemd, `/etc`, OS packages), WiFi AP, network automation, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
+Still TODO: OS packages, llama.cpp automation, model/corpus tooling, WiFi AP, network automation, auth, semantic/Chroma retrieval.
 
 ---
 
@@ -214,16 +214,28 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 `install.sh` at repo root.
 
-**App bootstrap (done):** clone/update repo under `--prefix`, create venv, `pip install -e`, role data dirs under `--data-dir`. `--dry-run` for plan-only. Non-interactive needs `--yes`.
+**App bootstrap + deploy render + optional service install (done):** clone, venv, pip, data dirs, `ark deploy render`, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
 
 ```bash
 sh install.sh --role rag --dry-run
-sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
+sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-root --yes
 ```
 
-**Future (not started):** OS packages, `/etc` env files, systemd install, enable/start, llama.cpp, model download, WiFi/network. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+**Future (not started):** OS packages, llama.cpp, model download, WiFi/network. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: app bootstrap done; service install not started**
+**Status: app bootstrap + render + service files done; OS/llm/network not started**
+
+## 41. Install service files
+
+Optional `--install-services` and `--service-root` for env/systemd install with backup, chmod, and systemctl when installing to `/`.
+
+**Status: done**
+
+## 40. Install deployment render
+
+Extend `install.sh` to run installed `ark deploy render` after app bootstrap. `--generated-dir` flag, role mapping (`both` -> `all`), safe path validation.
+
+**Status: done**
 
 ## 39. Install app bootstrap
 

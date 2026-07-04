@@ -71,29 +71,35 @@ Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.m
 
 ## Install bootstrap (`install.sh`)
 
-`install.sh` can bootstrap the app into a chosen prefix: clone/update repo, create venv, `pip install -e`, role-specific data dirs. It does **not** install OS packages, write `/etc`, install systemd units, llama.cpp, or models.
+`install.sh` bootstraps the app and renders deployment templates: clone/update repo, venv, `pip install -e`, role data dirs, `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
 
-Plan only (no changes):
+With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: app bootstrap + render only.
+
+Does **not** install OS packages, llama.cpp, or models. Does **not** configure network or WiFi AP.
+
+Plan only:
 
 ```bash
 sh install.sh --role rag --dry-run
+sh install.sh --role rag --install-services --dry-run
 ```
 
-App bootstrap (non-interactive needs `--yes`; use tmp paths unless you mean it):
+App bootstrap:
 
 ```bash
 sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
 ```
 
-Pipe form:
+Service files into a fake root (testing/review):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
+sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data \
+  --service-root /tmp/ark-pi-service-root --install-services --yes
 ```
 
-Full two-Pi deployment is still manual: [two-pi-manual.md](docs/deployment/two-pi-manual.md). Contract: [installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
+Full two-Pi deployment (systemd, network) is still manual: [two-pi-manual.md](docs/deployment/two-pi-manual.md). Contract: [installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
 
-These commands generate files for review. They do not install services or touch `/etc`.
+## Deployment artifacts
 
 ```bash
 ark deploy render --output-dir /tmp/ark-pi-deploy-render --force
@@ -124,7 +130,7 @@ More: [docs/deployment/README.md](docs/deployment/README.md).
 ## Not done yet
 
 - WiFi AP
-- Service install via install.sh (app bootstrap works; systemd/`/etc` still manual)
+- Service install to real `/etc` via install.sh needs `--install-services` and root/sudo; llama.cpp/models/network still manual
 - llama.cpp install automation
 - Model download/management
 - Auth
