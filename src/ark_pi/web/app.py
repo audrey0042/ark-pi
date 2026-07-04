@@ -8,6 +8,7 @@ from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
+from ark_pi.deploy.plan import build_deployment_install_plan, plan_to_dict
 from ark_pi.deploy.preflight import run_deployment_preflight
 from ark_pi.deploy.templates import DEFAULT_OUTPUT_DIR, DeployRole
 from ark_pi.ingest import pipeline as ingest_pipeline
@@ -24,6 +25,7 @@ from ark_pi.web.schemas import (
     AskRequest,
     DeleteIndexResponse,
     DeploymentPreflightResponse,
+    DeploymentInstallPlanResponse,
     HealthResponse,
     IndexBackendOption,
     IndexCatalogDetailResponse,
@@ -175,6 +177,18 @@ def create_app() -> FastAPI:
             ),
             message=result.message,
         )
+
+    @app.get("/api/deploy/plan", response_model=DeploymentInstallPlanResponse)
+    def api_deploy_plan(
+        generated_dir: str = Query(default=str(DEFAULT_OUTPUT_DIR), min_length=1),
+        role: str = Query(default="all", pattern="^(rag|llm|all)$"),
+    ) -> DeploymentInstallPlanResponse:
+        plan = build_deployment_install_plan(
+            generated_dir,
+            role=cast(DeployRole, role),
+        )
+        payload = plan_to_dict(plan)
+        return DeploymentInstallPlanResponse(**payload)
 
     @app.get("/api/deploy/preflight", response_model=DeploymentPreflightResponse)
     def api_deploy_preflight(

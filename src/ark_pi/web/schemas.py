@@ -124,6 +124,41 @@ class DeploymentPreflightResponse(BaseModel):
     checks: list[DeploymentPreflightCheckResponse]
 
 
+class PlanCopyStepResponse(BaseModel):
+    id: str
+    role: str
+    source: str
+    destination: str
+    mode: str | None
+    requires_sudo: bool
+    performed: bool
+    message: str
+
+
+class PlanManualCommandResponse(BaseModel):
+    id: str
+    role: str
+    command: str
+    requires_sudo: bool
+    performed: bool
+    message: str
+
+
+class DeploymentInstallPlanResponse(BaseModel):
+    role: str
+    generated_dir: str
+    created_at: str
+    dry_run: bool
+    host_mutations_performed: bool
+    network_checks_performed: bool
+    preflight: DeploymentPreflightResponse
+    copy_steps: list[PlanCopyStepResponse]
+    manual_commands: list[PlanManualCommandResponse]
+    notes: list[str]
+    warnings: list[str]
+    message: str
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str
