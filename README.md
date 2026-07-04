@@ -93,6 +93,23 @@ ark serve --host 127.0.0.1 --port 8000
 
 Quickstart uses local sample text under `ARK_SOURCE_DIR` and the mock LLM backend only. Use **LLM diagnostics** (`ark llm test`) when you want to test a real OpenAI-compatible backend such as ark-llm.
 
+## Deployment templates
+
+Render reviewable example env and systemd files for the future two-Pi appliance. **This does not install services, configure networking, or mutate the host.**
+
+```bash
+ark deploy render --output-dir deploy/generated
+ark deploy render --role rag --output-dir /tmp/ark-rag-deploy --force
+ark deploy render --role llm --output-dir /tmp/ark-llm-deploy --force
+```
+
+Generated files include:
+
+- **ark-rag** — `ark-rag.env` and `ark-rag.service` for running `ark serve` on the RAG Pi
+- **ark-llm** — `ark-llm.env` and `ark-llm.service` for a future llama.cpp OpenAI-compatible server on the LLM Pi
+
+Copy and adapt these files manually on each Pi. Installing units under `/etc/systemd/system`, enabling services, and configuring WiFi/Ethernet remain future work. See `deploy/rag-pi/` and `deploy/llm-pi/` for placeholders.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:

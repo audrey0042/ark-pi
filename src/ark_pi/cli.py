@@ -12,6 +12,7 @@ from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
+from ark_pi.deploy import templates as deploy_templates
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
@@ -29,10 +30,12 @@ ingest_app = typer.Typer(help="Document ingestion commands")
 index_app = typer.Typer(help="Local index commands")
 workspace_app = typer.Typer(help="Workspace index commands")
 llm_app = typer.Typer(help="LLM client commands")
+deploy_app = typer.Typer(help="Deployment template commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(llm_app, name="llm")
+app.add_typer(deploy_app, name="deploy")
 console = Console()
 
 
@@ -44,6 +47,12 @@ class LlmBackendOption(str, Enum):
 class IndexBackendOption(str, Enum):
     simple = "simple"
     chroma = "chroma"
+
+
+class DeployRoleOption(str, Enum):
+    rag = "rag"
+    llm = "llm"
+    all = "all"
 
 
 def _handle_index_errors(exc: BaseException) -> None:
@@ -808,6 +817,50 @@ def quickstart(
     console.print(f"Retrieved: {result.retrieved_count} chunk(s)")
     console.print(f"Answer: {result.ask_answer}")
     console.print(f"Preflight status: [bold]{result.preflight.overall_status}[/bold]")
+    console.print(result.message)
+
+
+@deploy_app.command("render")
+def deploy_render(
+    output_dir: Path = typer.Option(
+        deploy_templates.DEFAULT_OUTPUT_DIR,
+        "--output-dir",
+        help="Directory for rendered deployment templates",
+    ),
+    role: DeployRoleOption = typer.Option(
+        DeployRoleOption.all,
+        "--role",
+        help="Render templates for ark-rag, ark-llm, or both",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing generated files",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Render ark-rag and ark-llm env/systemd templates for review (does not install)."""
+    try:
+        result = deploy_templates.render_deployment_templates(
+            output_dir,
+            role=role.value,
+            force=force,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(deploy_templates.render_to_dict(result)))
+        return
+
+    table = Table(title="Deployment templates rendered")
+    table.add_column("File")
+    table.add_column("Kind")
+    table.add_column("Role")
+    for generated in result.generated_files:
+        table.add_row(generated.path, generated.kind, generated.role)
+    console.print(table)
     console.print(result.message)
 
 
