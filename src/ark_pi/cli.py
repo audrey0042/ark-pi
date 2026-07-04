@@ -13,6 +13,13 @@ from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy import templates as deploy_templates
+from ark_pi.deploy.plan import (
+    build_deployment_install_plan,
+    format_plan_json,
+    plan_to_dict,
+    render_plan_markdown,
+    write_plan_output,
+)
 from ark_pi.deploy.preflight import (
     deployment_preflight_to_dict,
     run_deployment_preflight,
@@ -57,6 +64,12 @@ class DeployRoleOption(str, Enum):
     rag = "rag"
     llm = "llm"
     all = "all"
+
+
+class PlanFormatOption(str, Enum):
+    table = "table"
+    markdown = "markdown"
+    json = "json"
 
 
 def _handle_index_errors(exc: BaseException) -> None:
@@ -902,6 +915,101 @@ def deploy_preflight(
 
     if result.overall_status == "blocked":
         raise typer.Exit(code=1)
+
+
+@deploy_app.command("plan")
+def deploy_plan(
+    generated_dir: Path = typer.Option(
+        deploy_templates.DEFAULT_OUTPUT_DIR,
+        "--generated-dir",
+        help="Directory containing rendered deployment templates",
+    ),
+    role: DeployRoleOption = typer.Option(
+        DeployRoleOption.all,
+        "--role",
+        help="Build install plan for ark-rag, ark-llm, or both",
+    ),
+    output_format: PlanFormatOption = typer.Option(
+        PlanFormatOption.table,
+        "--format",
+        help="Output format",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Optional file path for markdown or json output",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing output file",
+    ),
+) -> None:
+    """Build a dry-run deployment install plan (does not copy files or run commands)."""
+    try:
+        plan = build_deployment_install_plan(
+            generated_dir,
+            role=role.value,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if output is not None:
+        if output_format == PlanFormatOption.table:
+            typer.echo("--format table cannot be written to --output; use markdown or json.", err=True)
+            raise typer.Exit(code=1)
+        content = (
+            render_plan_markdown(plan)
+            if output_format == PlanFormatOption.markdown
+            else format_plan_json(plan)
+        )
+        try:
+            written = write_plan_output(output, content, force=force)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        console.print(f"Wrote deployment install plan to {written}")
+        return
+
+    if output_format == PlanFormatOption.json:
+        console.print_json(format_plan_json(plan).rstrip())
+        return
+
+    if output_format == PlanFormatOption.markdown:
+        console.print(render_plan_markdown(plan))
+        return
+
+    console.print(f"Overall preflight status: [bold]{plan.preflight.overall_status}[/bold]")
+    console.print(plan.message)
+
+    copy_table = Table(title="Planned file copies")
+    copy_table.add_column("ID", style="bold")
+    copy_table.add_column("Role")
+    copy_table.add_column("Destination")
+    copy_table.add_column("Performed")
+    for step in plan.copy_steps:
+        copy_table.add_row(step.id, step.role, step.destination, str(step.performed))
+    console.print(copy_table)
+
+    command_table = Table(title="Manual commands")
+    command_table.add_column("ID", style="bold")
+    command_table.add_column("Role")
+    command_table.add_column("Command")
+    command_table.add_column("Performed")
+    for command in plan.manual_commands:
+        command_table.add_row(
+            command.id,
+            command.role,
+            command.command,
+            str(command.performed),
+        )
+    console.print(command_table)
+
+    if plan.warnings:
+        console.print("[bold]Warnings[/bold]")
+        for warning in plan.warnings:
+            console.print(f"- {warning}")
 
 
 @app.command()

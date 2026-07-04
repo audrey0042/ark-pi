@@ -123,6 +123,21 @@ ark deploy preflight --generated-dir deploy/generated --role llm --json
 
 Warnings about missing `/opt/ark-pi/.venv/bin/ark`, llama.cpp binaries, or model files are expected on a dev laptop before Pi install. **Appliance preflight** (`ark preflight`) checks workspace/application readiness; **deployment preflight** checks rendered deployment templates and paths named in those files.
 
+### Deployment install plan
+
+After rendering templates and running deployment preflight, generate a dry-run install plan with planned copy targets and manual commands. **The plan does not copy files, run sudo, call systemctl, or mutate the host.**
+
+```bash
+ark deploy render --output-dir deploy/generated --force
+ark deploy preflight --generated-dir deploy/generated
+ark deploy plan --generated-dir deploy/generated
+ark deploy plan --generated-dir deploy/generated --role rag
+ark deploy plan --generated-dir deploy/generated --role llm --format markdown
+ark deploy plan --generated-dir deploy/generated --format json --output /tmp/ark-plan.json
+```
+
+Commands shown in the plan are manual review steps for a future Pi install. Warnings about missing `/opt` paths are expected on a dev laptop.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
