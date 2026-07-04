@@ -216,6 +216,18 @@ ark llm test --llm-backend openai-compatible --llm-base-url http://192.168.50.2:
 
 The web UI **LLM diagnostics** panel calls `GET /api/llm/status` on load and `POST /api/llm/test` only when you click **Test LLM**. For production, point `ARK_LLM_BACKEND=openai-compatible` and `ARK_LLM_BASE_URL` at the ark-llm llama.cpp server.
 
+### Local appliance init
+
+Create configured workspace and source directories, optionally seed an empty catalog and a sample text file. Init only prepares local storage paths — it does not configure networking, systemd, or install models.
+
+```bash
+ark init
+ark init --sample
+ark init --json
+```
+
+Run `ark preflight` afterward to review passive readiness. The web UI **Initialize appliance storage** panel calls `POST /api/init`.
+
 ### Appliance preflight
 
 Run a passive readiness checklist for paths, catalog health, index backends, source ingest, import limits, and LLM configuration. Preflight does **not** contact the LLM server — use `ark llm test` for an active check.

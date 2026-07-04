@@ -209,6 +209,22 @@
       font-size: 0.8rem;
       margin-right: 0.5rem;
     }
+    #init-result {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    #init-path-lists {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0 0;
+    }
+    #init-path-lists li {
+      margin-bottom: 0.35rem;
+      font-size: 0.9rem;
+    }
     .hint { color: var(--muted); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
     .output { margin-top: 1.5rem; }
     .output section { margin-bottom: 1.25rem; }
@@ -552,6 +568,33 @@
           </div>
         </section>
       </div>
+    </section>
+
+    <section class="panel" aria-labelledby="init-heading">
+      <h2 id="init-heading">Initialize appliance storage</h2>
+      <p class="hint">
+        Creates local workspace and source directories, optionally seeds an empty catalog
+        and a sample text file. Does not configure networking, systemd, or install models.
+      </p>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="init-create-catalog" name="create_catalog" checked>
+        <label for="init-create-catalog">Create empty catalog</label>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="init-create-sample" name="create_sample_source">
+        <label for="init-create-sample">Create sample source</label>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="init-force" name="force">
+        <label for="init-force">Force repair invalid catalog or sample source</label>
+      </div>
+
+      <button type="button" id="init-button">Initialize local storage</button>
+
+      <div id="init-result" class="hidden" aria-live="polite"></div>
     </section>
 
     <section class="panel" aria-labelledby="preflight-heading">
@@ -1329,6 +1372,64 @@
       var preflightLoading = document.getElementById("preflight-loading");
       var preflightChecks = document.getElementById("preflight-checks");
       var preflightRunButton = document.getElementById("preflight-run-button");
+
+      var initButton = document.getElementById("init-button");
+      var initResult = document.getElementById("init-result");
+      var initCreateCatalog = document.getElementById("init-create-catalog");
+      var initCreateSample = document.getElementById("init-create-sample");
+      var initForce = document.getElementById("init-force");
+
+      function renderInitResult(data) {
+        var html = "<p><strong>" + data.message + "</strong></p>";
+        html += "<p><strong>Preflight status:</strong> " + data.preflight.overall_status + "</p>";
+        html += "<ul id=\"init-path-lists\">";
+        (data.created_paths || []).forEach(function (path) {
+          html += "<li><strong>Created:</strong> " + path + "</li>";
+        });
+        (data.existing_paths || []).forEach(function (path) {
+          html += "<li><strong>Existing:</strong> " + path + "</li>";
+        });
+        (data.skipped || []).forEach(function (path) {
+          html += "<li><strong>Skipped:</strong> " + path + "</li>";
+        });
+        if (data.sample_source_path) {
+          html += "<li><strong>Sample source:</strong> " + data.sample_source_path + "</li>";
+        }
+        html += "</ul>";
+        initResult.innerHTML = html;
+        initResult.classList.remove("hidden");
+      }
+
+      initButton.addEventListener("click", function () {
+        initButton.disabled = true;
+        initButton.textContent = "Initializing…";
+        initResult.classList.add("hidden");
+
+        var payload = {
+          create_catalog: initCreateCatalog.checked,
+          create_sample_source: initCreateSample.checked,
+          force: initForce.checked
+        };
+
+        fetchJson("/api/init", payload)
+          .then(function (result) {
+            if (!result.ok) {
+              initResult.innerHTML = "<p><strong>Error:</strong> " + parseApiError(result) + "</p>";
+              initResult.classList.remove("hidden");
+              return;
+            }
+            renderInitResult(result.data);
+            return Promise.all([loadPreflight(), loadIndexes()]);
+          })
+          .catch(function (err) {
+            initResult.innerHTML = "<p><strong>Error:</strong> " + (err.message || "Network error") + "</p>";
+            initResult.classList.remove("hidden");
+          })
+          .finally(function () {
+            initButton.disabled = false;
+            initButton.textContent = "Initialize local storage";
+          });
+      });
 
       function renderPreflight(data) {
         preflightSummary.innerHTML = (

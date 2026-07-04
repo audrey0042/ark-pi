@@ -52,6 +52,21 @@ class PreflightResponse(BaseModel):
     checks: list[PreflightCheckResponse]
 
 
+class InitRequest(BaseModel):
+    create_catalog: bool = True
+    create_sample_source: bool = False
+    force: bool = False
+
+
+class InitResponse(BaseModel):
+    created_paths: list[str]
+    existing_paths: list[str]
+    skipped: list[str]
+    sample_source_path: str | None
+    preflight: PreflightResponse
+    message: str
+
+
 class StatusResponse(BaseModel):
     service: str
     role: str
