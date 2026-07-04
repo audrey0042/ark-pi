@@ -8,7 +8,7 @@ The point is offline Q&A from your own index when WAN is down (e.g. *"how do I p
 
 Working now: laptop MVP (CLI, API, web UI, workspace tools, mock LLM), deploy review commands (render through unpack), and [manual two-Pi docs](deployment/two-pi-manual.md). The deploy commands are helpers for review, not the end product.
 
-Still TODO: `install.sh` bootstrap ([contract written](deployment/installer-bootstrap-contract.md), script not), WiFi AP, network automation, systemd install, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
+Still TODO: service install (systemd, `/etc`, OS packages), WiFi AP, network automation, llama.cpp automation, model/corpus tooling, auth, semantic/Chroma retrieval.
 
 ---
 
@@ -212,17 +212,30 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 ## 36. Installer bootstrap
 
-Future role-aware `install.sh` for ark-rag and/or ark-llm. Target UX:
+`install.sh` at repo root.
+
+**App bootstrap (done):** clone/update repo under `--prefix`, create venv, `pip install -e`, role data dirs under `--data-dir`. `--dry-run` for plan-only. Non-interactive needs `--yes`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role llm --yes
+sh install.sh --role rag --dry-run
+sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
 ```
 
-Interactive role prompt when `--role` is omitted. Non-interactive flags: `--role`, `--dry-run`, `--yes`, `--branch`, `--prefix`, `--data-dir`. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+**Future (not started):** OS packages, `/etc` env files, systemd install, enable/start, llama.cpp, model download, WiFi/network. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: not started** (script does not exist)
+**Status: app bootstrap done; service install not started**
+
+## 39. Install app bootstrap
+
+Extend `install.sh` from planner-only to minimal app bootstrap with confirmation/`--yes`, offline-safe tests.
+
+**Status: done**
+
+## 38. Install bootstrap planner (v0)
+
+Root-level planner-only `install.sh` and shell tests. Supports `--role`, `--dry-run`, future-compat flags, interactive role prompt, non-interactive failure without `--role`.
+
+**Status: done**
 
 ## 37. Installer bootstrap contract (docs)
 

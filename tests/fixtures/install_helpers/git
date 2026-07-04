@@ -1,0 +1,77 @@
+#!/bin/sh
+# Fake git for install.sh tests. Set ARK_INSTALL_LOCAL_REPO to a source tree.
+
+die() {
+  echo "fake-git: $*" >&2
+  exit 1
+}
+
+if [ "$1" = "clone" ]; then
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --branch)
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        die "unsupported clone flag: $1"
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  if [ $# -lt 2 ]; then
+    die "clone requires repo and destination"
+  fi
+  _dest="$2"
+  if [ -z "${ARK_INSTALL_LOCAL_REPO:-}" ]; then
+    die "ARK_INSTALL_LOCAL_REPO is not set"
+  fi
+  if [ ! -d "$ARK_INSTALL_LOCAL_REPO" ]; then
+    die "ARK_INSTALL_LOCAL_REPO is missing: $ARK_INSTALL_LOCAL_REPO"
+  fi
+  mkdir -p "$_dest"
+  cp -a "$ARK_INSTALL_LOCAL_REPO/." "$_dest/"
+  rm -rf "$_dest/.venv"
+  rm -rf "$_dest/.git"
+  mkdir -p "$_dest/.git"
+  exit 0
+fi
+
+if [ "$1" = "-C" ]; then
+  shift
+  _worktree="$1"
+  shift
+  case "$1" in
+    fetch)
+      exit 0
+      ;;
+    checkout)
+      exit 0
+      ;;
+    status)
+      shift
+      if [ "$1" = "--porcelain" ] && [ "${ARK_INSTALL_GIT_DIRTY:-0}" = "1" ]; then
+        echo " M dirty.txt"
+      fi
+      exit 0
+      ;;
+    rev-parse)
+      shift
+      if [ "$1" = "--is-inside-work-tree" ]; then
+        echo true
+      fi
+      exit 0
+      ;;
+    *)
+      die "unsupported git -C command: $1"
+      ;;
+  esac
+fi
+
+die "unsupported git invocation: $*"

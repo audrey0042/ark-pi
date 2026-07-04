@@ -1,0 +1,41 @@
+#!/bin/sh
+# Fake python3 for install.sh tests.
+
+if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
+  shift 2
+  if [ "$1" = "--help" ]; then
+    exit 0
+  fi
+  _venv="$1"
+  if [ -z "$_venv" ]; then
+    echo "fake-python3: missing venv path" >&2
+    exit 1
+  fi
+  mkdir -p "$_venv/bin"
+  cat > "$_venv/bin/pip" <<'EOF'
+#!/bin/sh
+if [ "$1" = "install" ] && [ "$2" = "-e" ]; then
+  touch "$(dirname "$0")/../.ark_installed"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$_venv/bin/pip"
+  cat > "$_venv/bin/ark" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--help" ]; then
+  echo "fake ark help"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$_venv/bin/ark"
+  exit 0
+fi
+
+if [ "$1" = "--version" ]; then
+  echo "Python 3.12.0"
+  exit 0
+fi
+
+exit 0

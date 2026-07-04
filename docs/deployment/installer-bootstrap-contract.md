@@ -1,25 +1,32 @@
 # Installer bootstrap contract
 
-Design doc for a future `install.sh`. **The script does not exist yet.** Nothing in this repo runs it.
+Design doc for `install.sh`. **Current script bootstraps the app only** (clone, venv, pip install, data dirs under `--prefix` and `--data-dir`). OS packages, systemd, llama.cpp, and model download are future.
 
-Manual deployment is the current path: [two-pi-manual.md](two-pi-manual.md). Write `install.sh` only after that path works on real hardware.
+Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual.md).
 
 ## Status
 
-- No `install.sh` in this repo.
-- This file is the contract for whoever implements it.
-- [two-pi-manual.md](two-pi-manual.md) stays the documented install path until then.
+- `install.sh` at repo root. App bootstrap: clone/update, venv, `pip install -e`, role data dirs. Writes only under `--prefix` and `--data-dir`.
+- `--dry-run` prints the plan with no mutations.
+- Non-interactive install requires `--yes`.
+- Not implemented yet: OS package install, `/etc` env files, systemd units, enable/start, llama.cpp, model fetch, WiFi/network.
+- [two-pi-manual.md](two-pi-manual.md) stays the full deployment guide.
 - I have not validated full two-Pi deployment on real Pi hardware from this repo.
+
+```bash
+sh install.sh --role rag --dry-run
+sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
+```
 
 ## Target user experience
 
-Interactive one-liner (planned, not available today):
+Interactive one-liner (planner v0; pass `--role` when piping from curl):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
 ```
 
-Expected flow:
+Full installer flow (future, after planner):
 
 1. Script starts (stdin from curl pipe is fine).
 2. If `--role` is missing, prompt: `rag`, `llm`, or `both`.
@@ -168,4 +175,4 @@ For `llm` or `both` with a real backend configured, also suggest `ark llm test -
 
 - [two-pi-manual.md](two-pi-manual.md): current manual path
 - [README deployment artifacts](../../README.md#deployment-artifacts): `ark deploy *` review commands
-- [roadmap §36](../roadmap.md#36-installer-bootstrap): future install.sh implementation slice
+- [roadmap §36](../roadmap.md#36-installer-bootstrap): app bootstrap done; service install future
