@@ -20,7 +20,7 @@ Future responsibilities for the LLM Pi. **Not implemented in the initial scaffol
 
 ## systemd service
 
-- `ark-llm.service` — llama.cpp server bound to Ethernet interface.
+- `ark-llm.service`: llama.cpp server on the Ethernet interface.
 - Restart policy and resource limits TBD.
 
 Subdirectories `systemd/` and `llama-cpp/` are reserved for future config snippets. No executable scripts in the scaffold pass.
