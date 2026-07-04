@@ -8,7 +8,7 @@ Laptop-only smoke test first: [README quickstart](../../README.md#quickstart).
 
 This is manual steps, not an installer. I haven't run the full stack end-to-end on real Pi hardware from this repo. Paths and systemd snippets are examples to edit.
 
-`install.sh` can prepare an app checkout/venv under `--prefix` and role data dirs under `--data-dir` (`sh install.sh --role rag --prefix ... --data-dir ... --yes`). Service setup (systemd, `/etc`, network) is still manual here.
+`install.sh` can bootstrap the app, render templates, and with `--install-services` install generated env/systemd files (use `--service-root /tmp/...` to review without touching real `/etc`). llama.cpp, models, and network setup remain manual here.
 
 ## What the CLI does and doesn't do
 
@@ -317,7 +317,7 @@ On **ark-llm**, confirm the inference server responds on its configured port usi
 
 ## What is still future work
 
-- Service install via `install.sh` ([installer-bootstrap-contract.md](installer-bootstrap-contract.md)); app bootstrap works, manual guide covers systemd/network
+- llama.cpp install, model setup, network/WiFi ([installer-bootstrap-contract.md](installer-bootstrap-contract.md)); `--install-services` handles env/systemd copy when explicitly requested
 - WiFi AP mode on ark-rag
 - Network configuration (static Ethernet, DHCP, DNS, firewall)
 - llama.cpp install automation

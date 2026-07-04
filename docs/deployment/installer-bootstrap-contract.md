@@ -1,21 +1,22 @@
 # Installer bootstrap contract
 
-Design doc for `install.sh`. **Current script bootstraps the app only** (clone, venv, pip install, data dirs under `--prefix` and `--data-dir`). OS packages, systemd, llama.cpp, and model download are future.
+Design doc for `install.sh`. **Current script:** app bootstrap, deploy template render, and optional service file install (`--install-services`). OS packages, llama.cpp, model download, and network/WiFi remain manual.
 
 Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual.md).
 
 ## Status
 
-- `install.sh` at repo root. App bootstrap: clone/update, venv, `pip install -e`, role data dirs. Writes only under `--prefix` and `--data-dir`.
-- `--dry-run` prints the plan with no mutations.
-- Non-interactive install requires `--yes`.
-- Not implemented yet: OS package install, `/etc` env files, systemd units, enable/start, llama.cpp, model fetch, WiFi/network.
+- `install.sh` at repo root. App bootstrap + `ark deploy render` into `--generated-dir`.
+- `--install-services` copies rendered env/systemd files under `--service-root` (default `/`). Backs up existing files. `systemctl daemon-reload/enable/start` when service root is `/` (respects `--no-enable`, `--no-start`).
+- `--service-root /tmp/...` for safe testing: files only, no systemctl.
+- `--dry-run` prints the plan with no mutations. Non-interactive install requires `--yes`.
+- Not implemented: OS package install, llama.cpp, model fetch, WiFi/network, auth.
 - [two-pi-manual.md](two-pi-manual.md) stays the full deployment guide.
-- I have not validated full two-Pi deployment on real Pi hardware from this repo.
 
 ```bash
 sh install.sh --role rag --dry-run
-sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
+sh install.sh --role rag --install-services --dry-run
+sh install.sh --role rag --service-root /tmp/ark-pi-service-root --install-services --yes
 ```
 
 ## Target user experience
@@ -66,8 +67,11 @@ Flags after the script name use `sh -s --` when piping from curl.
 | `--repo https://github.com/audrey0042/ark-pi.git` | Source repo URL |
 | `--prefix /opt/ark-pi` | Install root for checkout and venv |
 | `--data-dir /srv/ark-pi` | Runtime data root (workspace, sources, models) |
-| `--no-enable` | Copy units but do not `systemctl enable` |
-| `--no-start` | Do not `systemctl start` after install |
+| `--generated-dir PATH` | Render deployment templates here (default: `$DATA_DIR/deploy/generated`) |
+| `--install-services` | Install rendered env/systemd files after render |
+| `--service-root PATH` | Root for service paths (default `/`; use `/tmp/...` for testing) |
+| `--no-enable` | Skip `systemctl enable` when installing to `/` |
+| `--no-start` | Skip `systemctl start` when installing to `/` |
 | `--help` | Usage and exit |
 
 Defaults should be boring and printed in the summary. All flags must work when passed as `sh -s -- FLAG ...` after a curl pipe.
@@ -81,9 +85,9 @@ Defaults should be boring and printed in the summary. All flags must work when p
 
 ## Dry-run behavior
 
-- Must not mutate the host (no packages, clones, copies, systemd, network).
-- Print planned actions: packages, clone/update, venv, `pip install`, template render, env/service copies, directory creation, enable/start.
-- Print detected OS, architecture, role, `--prefix`, `--data-dir`, branch, repo.
+- Must not mutate the host (no packages, clones, copies, systemd, network, no `ark deploy render`).
+- Print planned actions: clone/update, venv, `pip install`, `ark deploy render`, data dirs. Future: env/service copies, enable/start.
+- Print detected OS, architecture, role, `--prefix`, `--data-dir`, `--generated-dir`, branch, repo.
 - Exit nonzero if the role or platform is unsupported.
 
 ## Safety rules
@@ -106,13 +110,12 @@ Defaults should be boring and printed in the summary. All flags must work when p
 5. Print summary.
 6. Exit if `--dry-run`.
 7. Ask confirmation unless `--yes`.
-8. Install package prerequisites (Python, git, etc.).
-9. Clone or update repo at `--prefix`.
-10. Create Python virtualenv and `pip install` Ark Pi.
-11. Render role-specific deployment templates (`ark deploy render` or equivalent).
-12. Copy env and systemd files to system paths; backup existing files first.
-13. Create data/model directories under `--data-dir`.
-14. Optionally enable/start services (respect `--no-enable`, `--no-start`, `--yes`).
+8. Clone or update repo at `--prefix`.
+9. Create Python virtualenv and `pip install` Ark Pi.
+11. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
+12. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
+13. OS package install (future).
+14. llama.cpp / model fetch / network (future).
 15. Print validation commands.
 
 ## Role-specific install notes
@@ -122,14 +125,14 @@ Defaults should be boring and printed in the summary. All flags must work when p
 - Install Python and project dependencies.
 - Create workspace and source directories under `--data-dir`.
 - Default `ARK_LLM_BACKEND=mock` unless an LLM base URL is supplied.
-- Render and install `ark-rag.env` and `ark-rag.service`.
+- Render `ark-rag.env` and `ark-rag.service` into `--generated-dir` (review only; not copied to `/etc`).
 - Print: `ark preflight`, `ark llm status`.
 
 ### `llm`
 
 - Prepare model directory under `--data-dir`; do not fetch a GGUF silently.
 - llama.cpp build/install may live in this script or a separate helper (open decision).
-- Render and install `ark-llm.env` and `ark-llm.service`.
+- Render `ark-llm.env` and `ark-llm.service` into `--generated-dir` (review only).
 - Print commands to verify the llama.cpp server responds (exact endpoint depends on build).
 
 ### `both`

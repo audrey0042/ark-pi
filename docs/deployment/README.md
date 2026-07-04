@@ -2,7 +2,7 @@
 
 `ark deploy *` is dry-run only. It writes templates and zip bundles for review. Nothing here installs services or touches system dirs.
 
-Right now you deploy by hand: [two-pi-manual.md](two-pi-manual.md). [install.sh](../../install.sh) bootstraps the app (clone, venv, data dirs) but not services. Full install: [roadmap §36](../roadmap.md#36-installer-bootstrap).
+Right now you deploy by hand: [two-pi-manual.md](two-pi-manual.md). [install.sh](../../install.sh) bootstraps the app, renders templates, and can install service files with `--install-services`. Full Pi setup: [roadmap §36](../roadmap.md#36-installer-bootstrap).
 
 | Doc | |
 |-----|--|
