@@ -122,6 +122,12 @@ Passive LLM status and explicit diagnostic test across CLI (`ark llm status`, `a
 
 **Status: done**
 
+## 22. Local appliance init
+
+Explicit initialization across CLI (`ark init`), API (`POST /api/init`), and web UI **Initialize appliance storage** panel. Creates `ARK_WORKSPACE_DIR`, `ARK_SOURCE_DIR`, workspace indexes directory, optionally empty `catalog.json` and sample text source, then reports passive preflight. Does not configure networking, systemd, or models.
+
+**Status: done**
+
 ## 23. Appliance preflight readiness
 
 Passive operator checklist across CLI (`ark preflight`), API (`GET /api/preflight`), and web UI **Appliance preflight** panel. Checks workspace/source paths, catalog health, index roots, source ingest readiness, index backend availability, passive LLM config, import limits, and disk space without network calls or directory creation.

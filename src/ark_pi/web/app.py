@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ark_pi import config as ark_config
+from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.llm_client import diagnostics as llm_diagnostics
@@ -24,6 +25,8 @@ from ark_pi.web.schemas import (
     IndexCatalogItem,
     IndexCatalogListResponse,
     IndexStatsResponse,
+    InitRequest,
+    InitResponse,
     LocalPathIngestRequest,
     LocalPathIngestResponse,
     LlmPassiveStatusResponse,
@@ -91,6 +94,39 @@ def create_app() -> FastAPI:
             output_text=result.output_text,
             latency_ms=result.latency_ms,
             error=result.error,
+            message=result.message,
+        )
+
+    @app.post("/api/init", response_model=InitResponse)
+    def api_init(request: InitRequest) -> InitResponse:
+        result = ark_init.initialize_appliance(
+            settings=ark_config.get_settings(),
+            create_catalog=request.create_catalog,
+            create_sample_source=request.create_sample_source,
+            force=request.force,
+        )
+        preflight = result.preflight
+        return InitResponse(
+            created_paths=result.created_paths,
+            existing_paths=result.existing_paths,
+            skipped=result.skipped,
+            sample_source_path=result.sample_source_path,
+            preflight=PreflightResponse(
+                role=preflight.role,
+                overall_status=preflight.overall_status,
+                generated_at=preflight.generated_at,
+                network_checks_performed=preflight.network_checks_performed,
+                checks=[
+                    {
+                        "id": check.id,
+                        "label": check.label,
+                        "status": check.status,
+                        "message": check.message,
+                        "details": check.details,
+                    }
+                    for check in preflight.checks
+                ],
+            ),
             message=result.message,
         )
 

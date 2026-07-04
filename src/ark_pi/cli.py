@@ -9,6 +9,7 @@ from rich.table import Table
 
 from ark_pi import __version__
 from ark_pi import config as ark_config
+from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi.ingest import chunking, sources as ingest_sources
 from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
@@ -677,6 +678,69 @@ def llm_mock(
     client = create_llm_client("mock")
     response = client.complete(LlmRequest(prompt=prompt))
     console.print(response.text)
+
+
+@app.command()
+def init(
+    sample: bool = typer.Option(
+        False,
+        "--sample",
+        help="Create a tiny sample .txt source file",
+    ),
+    no_catalog: bool = typer.Option(
+        False,
+        "--no-catalog",
+        help="Do not create catalog.json",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Allow replacing invalid catalog or sample source",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Create local appliance workspace and source directories (no network calls)."""
+    try:
+        result = ark_init.initialize_appliance(
+            settings=ark_config.get_settings(),
+            create_catalog=not no_catalog,
+            create_sample_source=sample,
+            force=force,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(ark_init.init_to_dict(result)))
+        return
+
+    if result.created_paths:
+        created_table = Table(title="Created paths")
+        created_table.add_column("Path")
+        for path in result.created_paths:
+            created_table.add_row(path)
+        console.print(created_table)
+
+    if result.existing_paths:
+        existing_table = Table(title="Existing paths")
+        existing_table.add_column("Path")
+        for path in result.existing_paths:
+            existing_table.add_row(path)
+        console.print(existing_table)
+
+    if result.skipped:
+        skipped_table = Table(title="Skipped paths")
+        skipped_table.add_column("Path")
+        for path in result.skipped:
+            skipped_table.add_row(path)
+        console.print(skipped_table)
+
+    if result.sample_source_path:
+        console.print(f"Sample source: {result.sample_source_path}")
+
+    console.print(f"Preflight status: [bold]{result.preflight.overall_status}[/bold]")
+    console.print(result.message)
 
 
 @app.command()

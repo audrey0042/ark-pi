@@ -63,6 +63,10 @@ def test_get_root_contains_expected_ui_elements(client: TestClient) -> None:
     assert 'id="preflight-heading"' in html
     assert "/api/preflight" in html
     assert "Does not contact the LLM server" in html
+    assert "Initialize appliance storage" in html
+    assert 'id="init-heading"' in html
+    assert "/api/init" in html
+    assert "Does not configure networking" in html
     assert "include_context" in html
     assert "include_prompt" in html
 
