@@ -2,11 +2,12 @@
 
 `ark deploy *` is dry-run only. It writes templates and zip bundles for review. Nothing here installs services or touches system dirs.
 
-Right now you deploy by hand: [two-pi-manual.md](two-pi-manual.md). A proper installer is [roadmap §36](../roadmap.md#36-installer-bootstrap) and doesn't exist yet.
+Right now you deploy by hand: [two-pi-manual.md](two-pi-manual.md). Future one-line bootstrap is specced in [installer-bootstrap-contract.md](installer-bootstrap-contract.md); [roadmap §36](../roadmap.md#36-installer-bootstrap) tracks the actual script.
 
 | Doc | |
 |-----|--|
-| [two-pi-manual.md](two-pi-manual.md) | Manual ark-rag / ark-llm setup |
+| [two-pi-manual.md](two-pi-manual.md) | Manual ark-rag / ark-llm setup (current path) |
+| [installer-bootstrap-contract.md](installer-bootstrap-contract.md) | Future `install.sh` UX and safety rules |
 | [../architecture.md](../architecture.md) | Why two Pis |
 | [../roadmap.md](../roadmap.md) | Done vs future |
 | [../../deploy/rag-pi/](../../deploy/rag-pi/README.md) | ark-rag placeholders |

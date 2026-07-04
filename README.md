@@ -92,7 +92,16 @@ More: [docs/deployment/README.md](docs/deployment/README.md).
 
 ## Future installer
 
-Maybe a role-aware `install.sh` with dry-run and checksums, fetchable via wget/curl, after manual Pi setup is proven. **Does not exist.** Don't pipe random scripts into bash. Use the manual guide above for now.
+Planned bootstrap (not shipped yet):
+
+```bash
+# Does not exist yet. Do not run until install.sh is in the repo.
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh
+```
+
+Expected behavior: interactive role pick (`rag` / `llm` / `both`), summary before changes, confirmation unless `--yes`, non-interactive flags like `--role rag --dry-run`. Contract: [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
+
+Until then, use [two-pi-manual.md](docs/deployment/two-pi-manual.md).
 
 ## Docs
 
@@ -101,6 +110,7 @@ Maybe a role-aware `install.sh` with dry-run and checksums, fetchable via wget/c
 | [docs/architecture.md](docs/architecture.md) | Request flow, APIs |
 | [docs/roadmap.md](docs/roadmap.md) | What's done vs TODO |
 | [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md) | Manual Pi setup |
+| [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md) | Future install.sh contract |
 | [docs/deployment/README.md](docs/deployment/README.md) | Deploy doc index |
 | [docs/hardware.md](docs/hardware.md) | Hardware notes |
 

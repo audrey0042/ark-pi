@@ -8,6 +8,8 @@ Laptop-only smoke test first: [README quickstart](../../README.md#quickstart).
 
 This is manual steps, not an installer. I haven't run the full stack end-to-end on real Pi hardware from this repo. Paths and systemd snippets are examples to edit.
 
+Future plan: a curl-pipe `install.sh` with interactive role selection (`rag` / `llm` / `both`). Spec: [installer-bootstrap-contract.md](installer-bootstrap-contract.md). Manual steps here stay authoritative until that exists.
+
 ## What the CLI does and doesn't do
 
 | CLI | Does not |
@@ -315,7 +317,7 @@ On **ark-llm**, confirm the inference server responds on its configured port usi
 
 ## What is still future work
 
-- Installer script ([roadmap §36](../roadmap.md#36-installer-bootstrap)); manual guide is what exists today
+- Future `install.sh` bootstrap ([installer-bootstrap-contract.md](installer-bootstrap-contract.md), [roadmap §36](../roadmap.md#36-installer-bootstrap)); manual guide is what exists today
 - WiFi AP mode on ark-rag
 - Network configuration (static Ethernet, DHCP, DNS, firewall)
 - llama.cpp install automation
