@@ -15,6 +15,7 @@ from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy import templates as deploy_templates
 from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
 from ark_pi.deploy.bundle_verify import bundle_verify_result_to_dict, verify_deployment_bundle
+from ark_pi.deploy.bundle_unpack import unpack_deployment_bundle, unpack_result_to_dict
 from ark_pi.deploy.plan import (
     build_deployment_install_plan,
     format_plan_json,
@@ -1092,6 +1093,49 @@ def deploy_verify_bundle(
 
     if result.overall_status == "invalid":
         raise typer.Exit(code=1)
+
+
+@deploy_app.command("unpack-bundle")
+def deploy_unpack_bundle(
+    bundle: Path = typer.Option(
+        ...,
+        "--bundle",
+        help="Deployment bundle zip archive to unpack",
+    ),
+    staging_dir: Path = typer.Option(
+        ...,
+        "--staging-dir",
+        help="Safe staging directory for verified bundle extraction",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Replace existing contents in the staging directory",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
+) -> None:
+    """Verify and unpack a deployment bundle into a staging directory (does not install)."""
+    try:
+        result = unpack_deployment_bundle(
+            bundle,
+            staging_dir=staging_dir,
+            force=force,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(unpack_result_to_dict(result)))
+        return
+
+    console.print(f"Verification status: [bold]{result.verification_status}[/bold]")
+    console.print(f"Role: {result.role}")
+    console.print(f"Staging directory: {result.staging_dir}")
+    console.print(f"Extracted files: {result.extracted_count}")
+    for path in result.extracted_files:
+        console.print(f"- {path}")
+    console.print(result.message)
 
 
 @app.command()

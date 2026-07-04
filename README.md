@@ -167,6 +167,20 @@ ark deploy verify-bundle --bundle /tmp/ark-deploy-bundle.zip --json
 
 Verification confirms role-specific template contents, rejects unsafe archive entries, and fails if the embedded install plan claims any step was performed.
 
+### Deployment bundle unpack
+
+After verifying a bundle, unpack it into a safe staging directory for human review. **Unpack verifies the bundle first, writes only under the staging directory, and does not install services or copy files into system paths. The staging directory must not be a system directory such as `/etc`, `/opt`, or `/srv`.**
+
+```bash
+ark deploy render --output-dir deploy/generated --force
+ark deploy bundle --generated-dir deploy/generated --output /tmp/ark-deploy-bundle.zip --force
+ark deploy verify-bundle --bundle /tmp/ark-deploy-bundle.zip
+ark deploy unpack-bundle --bundle /tmp/ark-deploy-bundle.zip --staging-dir /tmp/ark-deploy-staging --force
+ark deploy unpack-bundle --bundle /tmp/ark-deploy-bundle.zip --staging-dir /tmp/ark-deploy-staging --json
+```
+
+Use `--force` to replace existing contents inside the staging directory. Future install automation may consume the staged files; this command only performs verified extraction.
+
 ## Try the local RAG loop
 
 This smoke test creates a sample document under `/tmp`, chunks it, builds the simple index, searches, and runs `ark ask`:
