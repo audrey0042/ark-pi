@@ -67,11 +67,31 @@ When WAN is down, ark-rag serves the index and calls ark-llm on the LAN. ark-llm
 phone/laptop --WiFi--> ark-rag --Ethernet--> ark-llm
 ```
 
-Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md).
+Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md). WiFi AP, network config, and systemd are still manual/TODO.
 
-No installer yet. WiFi AP, network config, and systemd automation are still TODO.
+## Install bootstrap (`install.sh`)
 
-## Deployment artifacts
+`install.sh` can bootstrap the app into a chosen prefix: clone/update repo, create venv, `pip install -e`, role-specific data dirs. It does **not** install OS packages, write `/etc`, install systemd units, llama.cpp, or models.
+
+Plan only (no changes):
+
+```bash
+sh install.sh --role rag --dry-run
+```
+
+App bootstrap (non-interactive needs `--yes`; use tmp paths unless you mean it):
+
+```bash
+sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
+```
+
+Pipe form:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --dry-run
+```
+
+Full two-Pi deployment is still manual: [two-pi-manual.md](docs/deployment/two-pi-manual.md). Contract: [installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
 
 These commands generate files for review. They do not install services or touch `/etc`.
 
@@ -90,34 +110,21 @@ Warnings about missing `/opt/ark-pi` or llama.cpp on a laptop are normal. `ark p
 
 More: [docs/deployment/README.md](docs/deployment/README.md).
 
-## Future installer
-
-Planned bootstrap (not shipped yet):
-
-```bash
-# Does not exist yet. Do not run until install.sh is in the repo.
-curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh
-```
-
-Expected behavior: interactive role pick (`rag` / `llm` / `both`), summary before changes, confirmation unless `--yes`, non-interactive flags like `--role rag --dry-run`. Contract: [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
-
-Until then, use [two-pi-manual.md](docs/deployment/two-pi-manual.md).
-
-## Docs
+## Deployment artifacts
 
 | File | |
 |------|--|
 | [docs/architecture.md](docs/architecture.md) | Request flow, APIs |
 | [docs/roadmap.md](docs/roadmap.md) | What's done vs TODO |
 | [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md) | Manual Pi setup |
-| [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md) | Future install.sh contract |
+| [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md) | Installer contract (app bootstrap + future services) |
 | [docs/deployment/README.md](docs/deployment/README.md) | Deploy doc index |
 | [docs/hardware.md](docs/hardware.md) | Hardware notes |
 
 ## Not done yet
 
 - WiFi AP
-- Real installer
+- Service install via install.sh (app bootstrap works; systemd/`/etc` still manual)
 - llama.cpp install automation
 - Model download/management
 - Auth

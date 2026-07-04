@@ -111,6 +111,6 @@ The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides 
 
 `ark deploy *` commands only build/review artifacts. They don't install units or configure the network. See [README](../README.md#deployment-artifacts) and [two-pi-manual.md](deployment/two-pi-manual.md).
 
-Future one-line bootstrap is specced in [installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md); not implemented.
+Future one-line bootstrap: [install.sh](../install.sh) bootstraps the app (clone, venv, data dirs). Service install still manual. Spec: [installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
 Systemd, WiFi AP, Ethernet, llama.cpp build, and model placement are still manual/TODO.
