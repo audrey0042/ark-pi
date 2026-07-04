@@ -23,8 +23,30 @@ EOF
   chmod +x "$_venv/bin/pip"
   cat > "$_venv/bin/ark" <<'EOF'
 #!/bin/sh
+log_cmd() {
+  if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+    echo "ark $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+  fi
+}
 if [ "$1" = "--help" ]; then
+  log_cmd "$@"
   echo "fake ark help"
+  exit 0
+fi
+if [ "$1" = "llm" ] && [ "$2" = "status" ]; then
+  log_cmd "$@"
+  if [ "${ARK_INSTALL_LLM_STATUS_FAIL:-0}" = "1" ]; then
+    echo "fake llm status failed" >&2
+    exit 1
+  fi
+  exit 0
+fi
+if [ "$1" = "deploy" ] && [ "$2" = "preflight" ]; then
+  log_cmd "$@"
+  if [ "${ARK_INSTALL_PREFLIGHT_FAIL:-0}" = "1" ]; then
+    echo "fake preflight failed" >&2
+    exit 1
+  fi
   exit 0
 fi
 if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then

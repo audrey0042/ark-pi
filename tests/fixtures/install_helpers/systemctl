@@ -1,0 +1,22 @@
+#!/bin/sh
+# Fake systemctl for install.sh validation tests (read-only checks only).
+
+if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+  echo "systemctl $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+fi
+
+case "$1" in
+  is-enabled|is-active)
+    if [ "${ARK_PI_INSTALL_SYSTEMCTL_DISABLED:-0}" = "1" ]; then
+      exit 1
+    fi
+    exit 0
+    ;;
+  daemon-reload|enable|start|disable|stop|restart)
+    echo "fake-systemctl: mutating command rejected: $*" >&2
+    exit 1
+    ;;
+  *)
+    exit 0
+    ;;
+esac

@@ -72,6 +72,8 @@ def test_help_exits_zero_and_prints_usage() -> None:
     assert "--generated-dir" in result.stdout
     assert "--install-services" in result.stdout
     assert "--no-os-packages" in result.stdout
+    assert "--validate-only" in result.stdout
+    assert "--no-validate" in result.stdout
     assert "systemd" in result.stdout.lower() or "service" in result.stdout.lower()
 
 
@@ -892,3 +894,336 @@ def test_without_install_services_no_service_root_writes(tmp_path: Path) -> None
     )
     assert result.returncode == 0, result.stderr
     assert not service_root.exists()
+
+
+def _run_rag_install(
+    tmp_path: Path,
+    *,
+    extra_env: dict[str, str] | None = None,
+    command_log: Path | None = None,
+    no_validate: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=command_log)
+    args = [
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+    ]
+    if no_validate:
+        args.append("--no-validate")
+    return run_install(*args, env=env)
+
+
+def _validate_only(
+    tmp_path: Path,
+    role: str,
+    *,
+    prefix: Path,
+    data_dir: Path,
+    generated: Path,
+    extra_args: list[str] | None = None,
+    extra_env: dict[str, str] | None = None,
+    command_log: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=command_log)
+    args = [
+        "--role",
+        role,
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+    ]
+    if extra_args:
+        args.extend(extra_args)
+    return run_install(*args, env=env)
+
+
+def test_validate_only_happy_path_rag(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    result = _validate_only(tmp_path, "rag", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode == 0, result.stderr
+    assert "[pass]" in result.stdout
+    assert "Validation: PASS" in result.stdout
+
+
+def test_validate_only_happy_path_llm_warns_missing_gguf(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = _validate_only(tmp_path, "llm", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode == 0, result.stderr
+    assert "[warning] llm_model_file" in result.stdout
+    assert "Validation: PASS (with warnings)" in result.stdout
+
+
+def test_validate_only_happy_path_both(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "both",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = _validate_only(tmp_path, "both", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode == 0, result.stderr
+    assert "[pass] deploy_templates" in result.stdout
+
+
+def test_validate_only_missing_prefix_exits_nonzero(tmp_path: Path) -> None:
+    prefix = tmp_path / "missing-prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "generated"
+    generated.mkdir(parents=True)
+    result = _validate_only(tmp_path, "rag", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode != 0
+    assert "[fail] prefix_exists" in result.stdout
+
+
+def test_validate_only_missing_ark_exits_nonzero(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "generated"
+    prefix.mkdir()
+    data_dir.mkdir()
+    generated.mkdir()
+    result = _validate_only(tmp_path, "rag", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode != 0
+    assert "[fail] venv_ark" in result.stdout
+
+
+def test_validate_only_missing_data_dir_exits_nonzero(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "missing-data"
+    generated = tmp_path / "data" / "deploy" / "generated"
+    result = _validate_only(tmp_path, "rag", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode != 0
+    assert "[fail] data_dir" in result.stdout
+
+
+def test_validate_only_missing_generated_templates_exits_nonzero(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    (generated / "ark-rag.env").unlink()
+    (generated / "ark-rag.service").unlink()
+    result = _validate_only(tmp_path, "rag", prefix=prefix, data_dir=data_dir, generated=generated)
+    assert result.returncode != 0
+    assert "[fail] deploy_templates" in result.stdout
+
+
+def test_validate_only_deploy_preflight_failure_exits_nonzero(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_env={"ARK_INSTALL_PREFLIGHT_FAIL": "1"},
+    )
+    assert result.returncode != 0
+    assert "[fail] deploy_preflight" in result.stdout
+
+
+def test_validate_only_service_files_under_tmp_service_root(tmp_path: Path) -> None:
+    install = _run_service_install(tmp_path, "rag")
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--service-root", str(service_root)],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[pass] service_env_files" in result.stdout
+    assert "[pass] service_unit_files" in result.stdout
+
+
+def test_validate_only_missing_service_file_with_install_services_exits_nonzero(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--install-services", "--service-root", str(service_root)],
+    )
+    assert result.returncode != 0
+    assert "[fail] service_env_files" in result.stdout
+
+
+def test_redirected_service_root_validation_does_not_call_systemctl(tmp_path: Path) -> None:
+    install = _run_service_install(tmp_path, "rag")
+    assert install.returncode == 0, install.stderr
+    command_log = tmp_path / "commands.log"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--service-root", str(service_root)],
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "systemctl" not in read_command_log(command_log)
+
+
+def test_validation_with_fake_systemctl_records_read_only_checks(tmp_path: Path) -> None:
+    install = _run_service_install(tmp_path, "rag")
+    assert install.returncode == 0, install.stderr
+    command_log = tmp_path / "commands.log"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--service-root", str(service_root), "--install-services"],
+        extra_env={"ARK_PI_INSTALL_TEST_SYSTEMCTL_ROOT": "1"},
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "systemctl is-enabled ark-rag.service" in log
+    assert "systemctl is-active ark-rag.service" in log
+    assert "systemctl enable" not in log
+    assert "systemctl start" not in log
+
+
+def test_post_install_validation_runs_by_default(tmp_path: Path) -> None:
+    result = _run_rag_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Running post-install validation" in result.stdout
+    assert "Validation: PASS" in result.stdout
+
+
+def test_no_validate_skips_post_install_validation(tmp_path: Path) -> None:
+    result = _run_rag_install(tmp_path, no_validate=True)
+    assert result.returncode == 0, result.stderr
+    assert "Running post-install validation" not in result.stdout
+    assert "Post-install validation: skipped (--no-validate)" in result.stdout
+    assert "--validate-only" in result.stdout
+
+
+def test_dry_run_does_not_run_validation_commands(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(tmp_path / "prefix"),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--repo",
+        "file://fake",
+        "--yes",
+        "--dry-run",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Post-install validation: will run" in result.stdout
+    assert read_command_log(command_log) == ""
+
+
+def test_dry_run_validate_only_prints_validation_plan() -> None:
+    result = run_install("--role", "rag", "--validate-only", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "Validation steps:" in result.stdout
+    assert "deploy preflight" in result.stdout
+
+
+def test_validation_output_includes_pass_warning_fail_labels(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_env={"ARK_INSTALL_LLM_STATUS_FAIL": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[pass]" in result.stdout
+    assert "[warning]" in result.stdout
+    assert "[fail]" not in result.stdout
