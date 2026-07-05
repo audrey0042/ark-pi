@@ -139,6 +139,26 @@ Defaults should be boring and printed in the summary. All flags must work when p
 
 Validation is read-only. It does not install llama.cpp, download models, configure networking, or start/enable services.
 
+On a real **rag-pi** install (Raspberry Pi 5 / Debian 13 trixie), `ark-rag.service` uses `EnvironmentFile=/etc/ark-pi/ark-rag.env`, but bare `/opt/ark-pi/.venv/bin/ark preflight` falls back to user-local defaults. Installer validation and printed post-install commands load the role env file first so CLI checks match the service.
+
+### Role env selection
+
+Env file choice follows `--install-services`, not whether service files happen to exist under `--service-root`.
+
+| Mode | Env file used for `ark preflight` / `ark llm status` |
+|------|------------------------------------------------------|
+| Post-install or `--validate-only` with `--install-services` | `$SERVICE_ROOT/etc/ark-pi/ark-rag.env` or `ark-llm.env` |
+| Post-install without `--install-services` | `$GENERATED_DIR/ark-rag.env` or `ark-llm.env` |
+| `--validate-only` without `--install-services` | Generated env preferred; service env fallback when generated env is missing (warning names the file used) |
+
+For `ROLE=both`, rag checks use the rag env file; llm checks use the llm env file.
+
+### Safe env loading
+
+Installer-executed validation parses env files without `eval` or `source`. Only allowlisted `ARK_*` keys are exported for CLI commands. Malformed non-comment lines fail validation before running `ark`. Unknown keys emit `[warning] role_env_unknown_keys` (ignored, non-fatal). Template keys such as `ARK_LLM_HOST` and `ARK_LLAMACPP_*` are allowlisted.
+
+Printed operator examples may use `set -a; . envfile; set +a` for readability.
+
 ### Modes
 
 - **Post-install (default):** after a successful real install, run validation unless `--no-validate`.
@@ -151,10 +171,10 @@ Each check prints `[pass]`, `[warning]`, or `[fail]` with an id and message.
 
 Common: prefix exists, `$PREFIX/.venv/bin/ark` executable, `ark --help`, data dir, generated dir, role deployment templates, `ark deploy preflight`.
 
-Role-specific:
+Role-specific (role-env-aware):
 
-- **rag:** workspace/sources dirs; `ark llm status` (warning if LLM offline).
-- **llm:** model dir (required); GGUF file under models (warning only).
+- **rag:** workspace/sources dirs; `ark preflight` and `ark llm status` with rag env loaded (warning if LLM offline).
+- **llm:** model dir (required); GGUF file under models (warning only); `ark preflight` with llm env loaded.
 
 Services (when `--install-services`, or service files exist under service root): env files under `$SERVICE_ROOT/etc/ark-pi`, unit files under `$SERVICE_ROOT/etc/systemd/system`. When service root is `/`, read-only `systemctl is-enabled` / `is-active` (warnings only).
 
@@ -202,7 +222,7 @@ Services (when `--install-services`, or service files exist under service root):
 - Create workspace and source directories under `--data-dir`.
 - Default `ARK_LLM_BACKEND=mock` unless an LLM base URL is supplied.
 - Render `ark-rag.env` and `ark-rag.service` into `--generated-dir` (review only; not copied to `/etc`).
-- Print: `ark preflight`, `ark llm status`.
+- Print env-aware validation: load `ark-rag.env`, then `ark preflight`, `ark llm status`.
 
 ### `llm`
 
@@ -219,15 +239,21 @@ Services (when `--install-services`, or service files exist under service root):
 
 ## Validation commands to print
 
-After install, the script should suggest:
+After install, the script should suggest loading the role env first (bare `ark preflight` is not service-equivalent):
 
 ```bash
-ark preflight
-ark llm status
-ark llm test --llm-backend mock
+set -a
+. /etc/ark-pi/ark-rag.env
+set +a
+/opt/ark-pi/.venv/bin/ark preflight
+/opt/ark-pi/.venv/bin/ark llm status
+/opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
+/opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag
 curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/api/status
 ```
+
+For non-service installs, use `$GENERATED_DIR/ark-rag.env` instead of `/etc/ark-pi/ark-rag.env`.
 
 For `llm` or `both` with a real backend configured, also suggest `ark llm test --llm-backend openai-compatible --llm-base-url <url>` once the server is up.
 

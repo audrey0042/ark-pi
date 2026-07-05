@@ -25,12 +25,21 @@ EOF
 #!/bin/sh
 log_cmd() {
   if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
-    echo "ark $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+    _env_snapshot=$(env | grep '^ARK_' | sort | tr '\n' ' ')
+    echo "ark $* env:${_env_snapshot}" >> "$ARK_PI_INSTALL_COMMAND_LOG"
   fi
 }
 if [ "$1" = "--help" ]; then
   log_cmd "$@"
   echo "fake ark help"
+  exit 0
+fi
+if [ "$1" = "preflight" ]; then
+  log_cmd "$@"
+  if [ "${ARK_INSTALL_PREFLIGHT_FAIL:-0}" = "1" ]; then
+    echo "fake preflight failed" >&2
+    exit 1
+  fi
   exit 0
 fi
 if [ "$1" = "llm" ] && [ "$2" = "status" ]; then
@@ -91,8 +100,10 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
     touch "$_output/.rendered"
     if [ "${ARK_INSTALL_RENDER_SKIP_TEMPLATES:-0}" != "1" ]; then
       echo "ARK_ROLE=rag" > "$_output/ark-rag.env"
+      echo "ARK_WORKSPACE_DIR=/generated/rag/workspace" >> "$_output/ark-rag.env"
       echo "[Service]" > "$_output/ark-rag.service"
       echo "ARK_ROLE=llm" > "$_output/ark-llm.env"
+      echo "ARK_MODEL_PATH=/generated/llm/model.gguf" >> "$_output/ark-llm.env"
       echo "[Service]" > "$_output/ark-llm.service"
     fi
   fi

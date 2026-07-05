@@ -1203,6 +1203,161 @@ should_validate_services() {
   return 1
 }
 
+validation_env_service_path() {
+  _role="$1"
+  case "$_role" in
+    rag) service_dest /etc/ark-pi/ark-rag.env ;;
+    llm) service_dest /etc/ark-pi/ark-llm.env ;;
+    *) die "internal validation role error: $_role" ;;
+  esac
+}
+
+validation_env_generated_path() {
+  _role="$1"
+  _generated=$(map_install_path "$GENERATED_DIR")
+  case "$_role" in
+    rag) echo "$_generated/ark-rag.env" ;;
+    llm) echo "$_generated/ark-llm.env" ;;
+    *) die "internal validation role error: $_role" ;;
+  esac
+}
+
+validation_env_display_path() {
+  _role="$1"
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    validation_env_service_path "$_role"
+    return 0
+  fi
+  case "$_role" in
+    rag) echo "$GENERATED_DIR/ark-rag.env" ;;
+    llm) echo "$GENERATED_DIR/ark-llm.env" ;;
+    *) die "internal validation role error: $_role" ;;
+  esac
+}
+
+resolve_validation_env_file() {
+  _role="$1"
+  _service=$(validation_env_service_path "$_role")
+  _generated=$(validation_env_generated_path "$_role")
+  VALIDATION_ENV_FALLBACK=0
+
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    if [ -f "$_service" ]; then
+      VALIDATION_RESOLVED_ENV_FILE="$_service"
+      return 0
+    fi
+    return 1
+  fi
+
+  if [ -f "$_generated" ]; then
+    VALIDATION_RESOLVED_ENV_FILE="$_generated"
+    return 0
+  fi
+
+  if [ "$VALIDATE_ONLY" -eq 1 ] && [ -f "$_service" ]; then
+    VALIDATION_RESOLVED_ENV_FILE="$_service"
+    VALIDATION_ENV_FALLBACK=1
+    return 0
+  fi
+
+  return 1
+}
+
+export_allowed_ark_env_pair() {
+  _key="$1"
+  _value="$2"
+  case "$_key" in
+    ARK_ROLE) ARK_ROLE="$_value"; export ARK_ROLE ;;
+    ARK_HOST) ARK_HOST="$_value"; export ARK_HOST ;;
+    ARK_PORT) ARK_PORT="$_value"; export ARK_PORT ;;
+    ARK_DATA_DIR) ARK_DATA_DIR="$_value"; export ARK_DATA_DIR ;;
+    ARK_WORKSPACE_DIR) ARK_WORKSPACE_DIR="$_value"; export ARK_WORKSPACE_DIR ;;
+    ARK_SOURCE_DIR) ARK_SOURCE_DIR="$_value"; export ARK_SOURCE_DIR ;;
+    ARK_INDEX_DIR) ARK_INDEX_DIR="$_value"; export ARK_INDEX_DIR ;;
+    ARK_INDEX_BACKEND) ARK_INDEX_BACKEND="$_value"; export ARK_INDEX_BACKEND ;;
+    ARK_CHROMA_DIR) ARK_CHROMA_DIR="$_value"; export ARK_CHROMA_DIR ;;
+    ARK_COLLECTION_NAME) ARK_COLLECTION_NAME="$_value"; export ARK_COLLECTION_NAME ;;
+    ARK_EMBEDDING_MODEL) ARK_EMBEDDING_MODEL="$_value"; export ARK_EMBEDDING_MODEL ;;
+    ARK_LLM_BACKEND) ARK_LLM_BACKEND="$_value"; export ARK_LLM_BACKEND ;;
+    ARK_LLM_BASE_URL) ARK_LLM_BASE_URL="$_value"; export ARK_LLM_BASE_URL ;;
+    ARK_LLM_MODEL) ARK_LLM_MODEL="$_value"; export ARK_LLM_MODEL ;;
+    ARK_LLM_TIMEOUT_SECONDS) ARK_LLM_TIMEOUT_SECONDS="$_value"; export ARK_LLM_TIMEOUT_SECONDS ;;
+    ARK_LLM_MAX_TOKENS) ARK_LLM_MAX_TOKENS="$_value"; export ARK_LLM_MAX_TOKENS ;;
+    ARK_LLM_TEMPERATURE) ARK_LLM_TEMPERATURE="$_value"; export ARK_LLM_TEMPERATURE ;;
+    ARK_MAX_IMPORT_BYTES) ARK_MAX_IMPORT_BYTES="$_value"; export ARK_MAX_IMPORT_BYTES ;;
+    ARK_LLAMA_HOST) ARK_LLAMA_HOST="$_value"; export ARK_LLAMA_HOST ;;
+    ARK_LLAMA_PORT) ARK_LLAMA_PORT="$_value"; export ARK_LLAMA_PORT ;;
+    ARK_MODEL_DIR) ARK_MODEL_DIR="$_value"; export ARK_MODEL_DIR ;;
+    ARK_MODEL_PATH) ARK_MODEL_PATH="$_value"; export ARK_MODEL_PATH ;;
+    ARK_CONTEXT_SIZE) ARK_CONTEXT_SIZE="$_value"; export ARK_CONTEXT_SIZE ;;
+    ARK_THREADS) ARK_THREADS="$_value"; export ARK_THREADS ;;
+    ARK_LLM_HOST) ARK_LLM_HOST="$_value"; export ARK_LLM_HOST ;;
+    ARK_LLM_PORT) ARK_LLM_PORT="$_value"; export ARK_LLM_PORT ;;
+    ARK_LLAMACPP_SERVER_BIN) ARK_LLAMACPP_SERVER_BIN="$_value"; export ARK_LLAMACPP_SERVER_BIN ;;
+    ARK_LLAMACPP_MODEL_PATH) ARK_LLAMACPP_MODEL_PATH="$_value"; export ARK_LLAMACPP_MODEL_PATH ;;
+    ARK_LLAMACPP_CTX_SIZE) ARK_LLAMACPP_CTX_SIZE="$_value"; export ARK_LLAMACPP_CTX_SIZE ;;
+    ARK_LLAMACPP_THREADS) ARK_LLAMACPP_THREADS="$_value"; export ARK_LLAMACPP_THREADS ;;
+    ARK_LLAMACPP_EXTRA_ARGS) ARK_LLAMACPP_EXTRA_ARGS="$_value"; export ARK_LLAMACPP_EXTRA_ARGS ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+load_role_env_for_validation() {
+  _path="$1"
+  _role="$2"
+  _unknown=""
+  _unknown_sep=""
+
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      ''|'#'*) continue ;;
+    esac
+    case "$_line" in
+      *=*) ;;
+      *)
+        record_validation_check role_env_parse fail "malformed line in $_path: $_line"
+        return 1
+        ;;
+    esac
+    _key=${_line%%=*}
+    _value=${_line#*=}
+    if export_allowed_ark_env_pair "$_key" "$_value"; then
+      continue
+    fi
+    _unknown="$_unknown$_unknown_sep$_key"
+    _unknown_sep=", "
+  done < "$_path"
+
+  if [ -n "$_unknown" ]; then
+    record_validation_check role_env_unknown_keys warning "unknown keys in $_path (ignored): $_unknown"
+  fi
+  return 0
+}
+
+run_ark_with_role_env() {
+  _role="$1"
+  _ark="$2"
+  shift 2
+  _display=$(validation_env_display_path "$_role")
+
+  if ! resolve_validation_env_file "$_role"; then
+    record_validation_check role_env_file fail "missing env file for role $_role (expected under $_display)"
+    return 1
+  fi
+  _env_file="$VALIDATION_RESOLVED_ENV_FILE"
+  if [ "$VALIDATION_ENV_FALLBACK" -eq 1 ]; then
+    record_validation_check role_env_file warning "generated env missing; using service env: $_env_file"
+  fi
+  if ! load_role_env_for_validation "$_env_file" "$_role"; then
+    return 1
+  fi
+  if "$_ark" "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 reset_validation_state() {
   VALIDATION_FAILED=0
   VALIDATION_WARNED=0
@@ -1227,9 +1382,22 @@ check_deploy_templates_exist() {
   _generated=$(map_install_path "$GENERATED_DIR")
   _missing=0
   for _file in $(deploy_templates_for_role); do
-    if [ ! -f "$_generated/$_file" ]; then
-      _missing=1
+    if [ -f "$_generated/$_file" ]; then
+      continue
     fi
+    case "$_file" in
+      ark-rag.env)
+        if [ "$VALIDATE_ONLY" -eq 1 ] && [ -f "$(validation_env_service_path rag)" ]; then
+          continue
+        fi
+        ;;
+      ark-llm.env)
+        if [ "$VALIDATE_ONLY" -eq 1 ] && [ -f "$(validation_env_service_path llm)" ]; then
+          continue
+        fi
+        ;;
+    esac
+    _missing=1
   done
   if [ "$_missing" -eq 1 ]; then
     record_validation_check deploy_templates fail "missing deployment templates under $GENERATED_DIR for role $ROLE"
@@ -1324,10 +1492,23 @@ run_validation_checks() {
         record_validation_check rag_source_dir fail "RAG sources dir missing: $DATA_DIR/data/sources"
       fi
       if [ -x "$_ark" ]; then
-        if "$_ark" llm status >/dev/null 2>&1; then
-          record_validation_check rag_llm_status pass "ark llm status succeeded"
+        if run_ark_with_role_env rag "$_ark" preflight; then
+          record_validation_check rag_preflight pass "ark preflight succeeded using $VALIDATION_RESOLVED_ENV_FILE"
         else
-          record_validation_check rag_llm_status warning "ark llm status failed (LLM may be offline)"
+          if [ "$VALIDATION_FAILED" -eq 1 ]; then
+            :
+          else
+            record_validation_check rag_preflight fail "ark preflight failed using $VALIDATION_RESOLVED_ENV_FILE"
+          fi
+        fi
+        if run_ark_with_role_env rag "$_ark" llm status; then
+          record_validation_check rag_llm_status pass "ark llm status succeeded using $VALIDATION_RESOLVED_ENV_FILE"
+        else
+          if [ "$VALIDATION_FAILED" -eq 1 ]; then
+            :
+          else
+            record_validation_check rag_llm_status warning "ark llm status failed using $VALIDATION_RESOLVED_ENV_FILE (LLM may be offline)"
+          fi
         fi
       fi
       ;;
@@ -1345,6 +1526,17 @@ run_validation_checks() {
         record_validation_check llm_model_file pass "GGUF model file found under $DATA_DIR/models"
       else
         record_validation_check llm_model_file warning "no GGUF model file under $DATA_DIR/models (manual step)"
+      fi
+      if [ -x "$_ark" ]; then
+        if run_ark_with_role_env llm "$_ark" preflight; then
+          record_validation_check llm_preflight pass "ark preflight succeeded using $VALIDATION_RESOLVED_ENV_FILE"
+        else
+          if [ "$VALIDATION_FAILED" -eq 1 ]; then
+            :
+          else
+            record_validation_check llm_preflight fail "ark preflight failed using $VALIDATION_RESOLVED_ENV_FILE"
+          fi
+        fi
       fi
       ;;
   esac
@@ -1407,12 +1599,12 @@ print_validation_plan_steps() {
   echo "  Check deployment templates and ark deploy preflight for role $ROLE"
   case "$ROLE" in
     rag|both)
-      echo "  Check RAG workspace/sources dirs and ark llm status (warning if LLM offline)"
+      echo "  Check RAG workspace/sources dirs, role-env-aware ark preflight, and ark llm status (warning if LLM offline)"
       ;;
   esac
   case "$ROLE" in
     llm|both)
-      echo "  Check LLM model dir and warn if no GGUF model file"
+      echo "  Check LLM model dir, warn if no GGUF model file, and role-env-aware ark preflight"
       ;;
   esac
   if should_validate_services; then
@@ -1446,13 +1638,48 @@ print_post_install_validation_note() {
   echo "Post-install validation: will run after install unless --no-validate"
 }
 
+print_env_load_block() {
+  _env_file="$1"
+  echo "  set -a"
+  echo "  . $_env_file"
+  echo "  set +a"
+}
+
+print_role_validation_commands() {
+  _role="$1"
+  _ark="$2"
+  _env_file=$(validation_env_display_path "$_role")
+  echo "Role env ($_role): $_env_file"
+  print_env_load_block "$_env_file"
+  echo "  $_ark preflight"
+  case "$_role" in
+    rag) echo "  $_ark llm status" ;;
+  esac
+}
+
 print_validation_commands() {
   _deploy_role=$(deploy_role_for_install_role)
   _ark="$PREFIX/.venv/bin/ark"
   echo ""
-  echo "Validation commands:"
-  echo "  $_ark preflight"
-  echo "  $_ark llm status"
+  echo "Validation commands (load role env first; bare ark preflight uses default config, not the service):"
+  case "$ROLE" in
+    rag)
+      print_role_validation_commands rag "$_ark"
+      ;;
+    llm)
+      print_role_validation_commands llm "$_ark"
+      ;;
+    both)
+      print_role_validation_commands rag "$_ark"
+      echo ""
+      print_role_validation_commands llm "$_ark"
+      ;;
+  esac
+  echo ""
+  echo "One-liner example (rag):"
+  _rag_env=$(validation_env_display_path rag)
+  echo "  set -a; . $_rag_env; set +a; $_ark preflight"
+  echo ""
   echo "  $_ark llm test --llm-backend mock"
   echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"
   echo "  $_ark deploy plan --generated-dir $GENERATED_DIR --role $_deploy_role"
