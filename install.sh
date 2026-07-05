@@ -29,6 +29,9 @@ NO_VALIDATE=0
 VALIDATION_FAILED=0
 VALIDATION_WARNED=0
 
+INSTALL_OWNER=""
+INSTALL_GROUP=""
+
 OS=""
 ARCH=""
 
@@ -351,14 +354,32 @@ resolve_path_best_effort() {
     fi
     die "path is not a directory: $_path"
   fi
-  _parent=$(dirname "$_path")
-  _base=$(basename "$_path")
+  _parent=$(path_dirname "$_path")
+  _base=$(path_basename "$_path")
   if [ -e "$_parent" ]; then
     _resolved_parent=$(cd "$_parent" && pwd -P)
     echo "$_resolved_parent/$_base"
     return 0
   fi
   echo "$_path"
+}
+
+path_dirname() {
+  _path="$1"
+  case "$_path" in
+    /*/*) echo "${_path%/*}" ;;
+    /*) echo "/" ;;
+    */*) echo "${_path%/*}" ;;
+    *) echo "." ;;
+  esac
+}
+
+path_basename() {
+  _path="$1"
+  case "$_path" in
+    */*) echo "${_path##*/}" ;;
+    *) echo "$_path" ;;
+  esac
 }
 
 path_is_under() {
@@ -398,6 +419,163 @@ validate_generated_dir() {
   esac
 
   die "generated dir must be under --prefix, --data-dir, or /tmp: $_gen"
+}
+
+# Test-only: map /opt and /srv paths into ARK_PI_INSTALL_TEST_SYSTEM_ROOT for offline tests.
+map_install_path() {
+  _path="$1"
+  if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+    case "$_path" in
+      /opt|/opt/*)
+        echo "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}/opt${_path#/opt}"
+        return 0
+        ;;
+      /srv|/srv/*)
+        echo "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}/srv${_path#/srv}"
+        return 0
+        ;;
+    esac
+  fi
+  echo "$_path"
+}
+
+validate_install_paths() {
+  validate_single_install_path "$PREFIX" "prefix"
+  validate_single_install_path "$DATA_DIR" "data dir"
+}
+
+validate_single_install_path() {
+  _path="$1"
+  _label="$2"
+  case "$_path" in
+    /*) ;;
+    *)
+      die "$_label must be an absolute path: $_path"
+      ;;
+  esac
+  case "$_path" in
+    /|/opt|/usr|/etc|/srv|/lib|/var|/bin|/sbin)
+      die "refusing unsafe install path: $_path"
+      ;;
+  esac
+}
+
+resolve_install_owner() {
+  if is_root; then
+    if [ -n "${SUDO_USER:-}" ]; then
+      INSTALL_OWNER="$SUDO_USER"
+      if INSTALL_GROUP=$(id -gn "$SUDO_USER" 2>/dev/null); then
+        :
+      elif [ -n "${SUDO_GID:-}" ]; then
+        INSTALL_GROUP=$(getent group "$SUDO_GID" 2>/dev/null | cut -d: -f1)
+      fi
+      if [ -z "${INSTALL_GROUP:-}" ]; then
+        die "cannot determine group for sudo user: $SUDO_USER"
+      fi
+      return 0
+    fi
+  fi
+  INSTALL_OWNER=$(id -un 2>/dev/null || true)
+  INSTALL_GROUP=$(id -gn 2>/dev/null || true)
+  if [ -z "${INSTALL_OWNER:-}" ] || [ -z "${INSTALL_GROUP:-}" ]; then
+    die "cannot determine install directory owner"
+  fi
+}
+
+install_path_needs_privileged_prep() {
+  _logical_path="$1"
+  _which="$2"
+  if [ "$_which" = "prefix" ] && [ "${ARK_PI_INSTALL_TEST_UNWRITABLE_PREFIX_PARENT:-0}" = "1" ]; then
+    return 0
+  fi
+  if [ "$_which" = "data-dir" ] && [ "${ARK_PI_INSTALL_TEST_UNWRITABLE_DATA_DIR_PARENT:-0}" = "1" ]; then
+    return 0
+  fi
+  _path=$(map_install_path "$_logical_path")
+  if [ -e "$_path" ]; then
+    if [ -w "$_path" ]; then
+      return 1
+    fi
+    return 0
+  fi
+  _parent=$(path_dirname "$_path")
+  while [ ! -e "$_parent" ]; do
+    _parent=$(path_dirname "$_parent")
+  done
+  if [ -w "$_parent" ]; then
+    return 1
+  fi
+  return 0
+}
+
+prepare_install_owned_path() {
+  _logical_path="$1"
+  _label="$2"
+  _which="$3"
+  if ! install_path_needs_privileged_prep "$_logical_path" "$_which"; then
+    return 0
+  fi
+  resolve_install_owner
+  _path=$(map_install_path "$_logical_path")
+  if [ ! -e "$_path" ]; then
+    if ! run_as_root mkdir -p "$_path"; then
+      die "failed to create $_label: $_logical_path"
+    fi
+    if ! run_as_root chown "$INSTALL_OWNER:$INSTALL_GROUP" "$_path"; then
+      die "failed to chown $_label to $INSTALL_OWNER:$INSTALL_GROUP"
+    fi
+    return 0
+  fi
+  if ! run_as_root chown -R "$INSTALL_OWNER:$INSTALL_GROUP" "$_path"; then
+    die "failed to chown $_label to $INSTALL_OWNER:$INSTALL_GROUP"
+  fi
+}
+
+prepare_install_owned_paths() {
+  prepare_install_owned_path "$PREFIX" "prefix" "prefix"
+  prepare_install_owned_path "$DATA_DIR" "data dir" "data-dir"
+}
+
+print_install_path_ownership_steps() {
+  echo "Install path ownership steps:"
+  _owner_label="(resolved before install)"
+  if _owner=$(id -un 2>/dev/null) && _group=$(id -gn 2>/dev/null); then
+    _owner_label="$_owner:$_group"
+  fi
+  echo "  Install owner:       $_owner_label"
+  _print_install_path_ownership_plan "$PREFIX" "prefix" "prefix"
+  _print_install_path_ownership_plan "$DATA_DIR" "data dir" "data-dir"
+}
+
+_print_install_path_ownership_plan() {
+  _logical_path="$1"
+  _label="$2"
+  _which="$3"
+  _owner_label="USER:GROUP"
+  if _owner=$(id -un 2>/dev/null) && _group=$(id -gn 2>/dev/null); then
+    _owner_label="$_owner:$_group"
+  fi
+  if install_path_needs_privileged_prep "$_logical_path" "$_which"; then
+    _mapped=$(map_install_path "$_logical_path")
+    echo "  Prepare $_label:    $_logical_path (sudo required)"
+    if [ ! -e "$_mapped" ]; then
+      if is_root; then
+        echo "  Run mkdir -p $_logical_path"
+        echo "  Run chown $_owner_label $_logical_path"
+      else
+        echo "  Run sudo mkdir -p $_logical_path"
+        echo "  Run sudo chown $_owner_label $_logical_path"
+      fi
+    else
+      if is_root; then
+        echo "  Run chown -R $_owner_label $_logical_path"
+      else
+        echo "  Run sudo chown -R $_owner_label $_logical_path"
+      fi
+    fi
+  else
+    echo "  Prepare $_label:    $_logical_path (writable; no sudo needed)"
+  fi
 }
 
 validate_service_root() {
@@ -522,7 +700,8 @@ install_service_pair() {
   _filename="$1"
   _dest_suffix="$2"
   _mode="$3"
-  _src="$GENERATED_DIR/$_filename"
+  _generated=$(map_install_path "$GENERATED_DIR")
+  _src="$_generated/$_filename"
   _dest=$(service_dest "$_dest_suffix")
   if [ ! -f "$_src" ]; then
     die "missing generated service file: $_src"
@@ -738,6 +917,8 @@ print_plan() {
   print_common_summary
   print_os_prerequisite_steps
   echo ""
+  print_install_path_ownership_steps
+  echo ""
   if [ "$VALIDATE_ONLY" -eq 1 ]; then
     print_validation_plan_steps
   else
@@ -777,9 +958,9 @@ check_path_writable() {
     fi
     return 0
   fi
-  _parent=$(dirname "$_path")
+  _parent=$(path_dirname "$_path")
   while [ ! -e "$_parent" ]; do
-    _parent=$(dirname "$_parent")
+    _parent=$(path_dirname "$_parent")
   done
   if [ ! -w "$_parent" ]; then
     die "cannot create $_label under unwritable parent: $_parent"
@@ -787,24 +968,26 @@ check_path_writable() {
 }
 
 prefix_is_empty() {
-  if [ ! -d "$PREFIX" ]; then
+  _pref=$(map_install_path "$PREFIX")
+  if [ ! -d "$_pref" ]; then
     return 0
   fi
-  if [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
+  if [ -z "$(ls -A "$_pref" 2>/dev/null)" ]; then
     return 0
   fi
   return 1
 }
 
 ensure_clean_prefix() {
-  if [ -e "$PREFIX" ] && [ ! -d "$PREFIX" ]; then
+  _pref=$(map_install_path "$PREFIX")
+  if [ -e "$_pref" ] && [ ! -d "$_pref" ]; then
     die "prefix exists but is not a directory: $PREFIX"
   fi
-  if [ ! -e "$PREFIX" ]; then
+  if [ ! -e "$_pref" ]; then
     return 0
   fi
-  if [ -d "$PREFIX/.git" ]; then
-    if [ -n "$(git -C "$PREFIX" status --porcelain 2>/dev/null)" ]; then
+  if [ -d "$_pref/.git" ]; then
+    if [ -n "$(git -C "$_pref" status --porcelain 2>/dev/null)" ]; then
       die "prefix git checkout has local changes; commit or stash before re-running install.sh"
     fi
     return 0
@@ -853,62 +1036,67 @@ require_confirmation_for_mutation() {
 }
 
 clone_or_update_repo() {
-  if [ ! -d "$PREFIX" ]; then
-    _parent=$(dirname "$PREFIX")
+  _pref=$(map_install_path "$PREFIX")
+  if [ ! -d "$_pref" ]; then
+    _parent=$(path_dirname "$_pref")
     mkdir -p "$_parent"
-    git clone --branch "$BRANCH" "$REPO" "$PREFIX"
+    git clone --branch "$BRANCH" "$REPO" "$_pref"
     return 0
   fi
-  if [ -d "$PREFIX/.git" ]; then
-    git -C "$PREFIX" fetch origin "$BRANCH"
-    git -C "$PREFIX" checkout "$BRANCH"
+  if [ -d "$_pref/.git" ]; then
+    git -C "$_pref" fetch origin "$BRANCH"
+    git -C "$_pref" checkout "$BRANCH"
     return 0
   fi
-  git clone --branch "$BRANCH" "$REPO" "$PREFIX"
+  git clone --branch "$BRANCH" "$REPO" "$_pref"
 }
 
 create_venv_and_install() {
-  _venv="$PREFIX/.venv"
+  _pref=$(map_install_path "$PREFIX")
+  _venv="$_pref/.venv"
   if [ ! -d "$_venv" ]; then
     python3 -m venv "$_venv"
   fi
-  "$_venv/bin/pip" install -e "$PREFIX"
+  "$_venv/bin/pip" install -e "$_pref"
   "$_venv/bin/ark" --help >/dev/null
 }
 
 create_data_dirs() {
   for _dir in $(data_dirs_for_role); do
-    mkdir -p "$_dir"
+    mkdir -p "$(map_install_path "$_dir")"
   done
 }
 
 run_deploy_render() {
   _deploy_role=$(deploy_role_for_install_role)
-  _ark="$PREFIX/.venv/bin/ark"
+  _pref=$(map_install_path "$PREFIX")
+  _generated=$(map_install_path "$GENERATED_DIR")
+  _ark="$_pref/.venv/bin/ark"
   if [ ! -x "$_ark" ]; then
     die "ark CLI missing at $_ark"
   fi
-  mkdir -p "$GENERATED_DIR"
-  if ! "$_ark" deploy render --output-dir "$GENERATED_DIR" --role "$_deploy_role" --force; then
+  mkdir -p "$_generated"
+  if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force; then
     die "ark deploy render failed"
   fi
 }
 
 validate_generated_service_files() {
+  _generated=$(map_install_path "$GENERATED_DIR")
   case "$ROLE" in
     rag)
-      [ -f "$GENERATED_DIR/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
-      [ -f "$GENERATED_DIR/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
+      [ -f "$_generated/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
+      [ -f "$_generated/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
       ;;
     llm)
-      [ -f "$GENERATED_DIR/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
-      [ -f "$GENERATED_DIR/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
+      [ -f "$_generated/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
+      [ -f "$_generated/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
       ;;
     both)
-      [ -f "$GENERATED_DIR/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
-      [ -f "$GENERATED_DIR/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
-      [ -f "$GENERATED_DIR/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
-      [ -f "$GENERATED_DIR/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
+      [ -f "$_generated/ark-rag.env" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.env"
+      [ -f "$_generated/ark-rag.service" ] || die "missing generated service file: $GENERATED_DIR/ark-rag.service"
+      [ -f "$_generated/ark-llm.env" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.env"
+      [ -f "$_generated/ark-llm.service" ] || die "missing generated service file: $GENERATED_DIR/ark-llm.service"
       ;;
   esac
 }
@@ -1036,9 +1224,10 @@ record_validation_check() {
 }
 
 check_deploy_templates_exist() {
+  _generated=$(map_install_path "$GENERATED_DIR")
   _missing=0
   for _file in $(deploy_templates_for_role); do
-    if [ ! -f "$GENERATED_DIR/$_file" ]; then
+    if [ ! -f "$_generated/$_file" ]; then
       _missing=1
     fi
   done
@@ -1069,22 +1258,25 @@ check_systemctl_unit_state() {
 }
 
 run_validation_checks() {
-  _ark="$PREFIX/.venv/bin/ark"
+  _pref=$(map_install_path "$PREFIX")
+  _data=$(map_install_path "$DATA_DIR")
+  _generated=$(map_install_path "$GENERATED_DIR")
+  _ark="$_pref/.venv/bin/ark"
   _deploy_role=$(deploy_role_for_install_role)
 
   reset_validation_state
   echo "Validation checks:"
 
-  if [ -d "$PREFIX" ]; then
+  if [ -d "$_pref" ]; then
     record_validation_check prefix_exists pass "prefix exists: $PREFIX"
   else
     record_validation_check prefix_exists fail "prefix missing: $PREFIX"
   fi
 
   if [ -x "$_ark" ]; then
-    record_validation_check venv_ark pass "ark CLI present: $_ark"
+    record_validation_check venv_ark pass "ark CLI present: $PREFIX/.venv/bin/ark"
   else
-    record_validation_check venv_ark fail "ark CLI missing or not executable: $_ark"
+    record_validation_check venv_ark fail "ark CLI missing or not executable: $PREFIX/.venv/bin/ark"
   fi
 
   if [ -x "$_ark" ]; then
@@ -1095,24 +1287,24 @@ run_validation_checks() {
     fi
   fi
 
-  if [ -d "$DATA_DIR" ]; then
+  if [ -d "$_data" ]; then
     record_validation_check data_dir pass "data dir exists: $DATA_DIR"
   else
     record_validation_check data_dir fail "data dir missing: $DATA_DIR"
   fi
 
-  if [ -d "$GENERATED_DIR" ]; then
+  if [ -d "$_generated" ]; then
     record_validation_check generated_dir pass "generated dir exists: $GENERATED_DIR"
   else
     record_validation_check generated_dir fail "generated dir missing: $GENERATED_DIR"
   fi
 
-  if [ -d "$GENERATED_DIR" ]; then
+  if [ -d "$_generated" ]; then
     check_deploy_templates_exist
   fi
 
-  if [ -x "$_ark" ] && [ -d "$GENERATED_DIR" ]; then
-    if "$_ark" deploy preflight --generated-dir "$GENERATED_DIR" --role "$_deploy_role" >/dev/null 2>&1; then
+  if [ -x "$_ark" ] && [ -d "$_generated" ]; then
+    if "$_ark" deploy preflight --generated-dir "$_generated" --role "$_deploy_role" >/dev/null 2>&1; then
       record_validation_check deploy_preflight pass "ark deploy preflight succeeded"
     else
       record_validation_check deploy_preflight fail "ark deploy preflight failed for role $_deploy_role"
@@ -1121,12 +1313,12 @@ run_validation_checks() {
 
   case "$ROLE" in
     rag|both)
-      if [ -d "$DATA_DIR/data/workspace" ]; then
+      if [ -d "$_data/data/workspace" ]; then
         record_validation_check rag_workspace_dir pass "RAG workspace dir exists"
       else
         record_validation_check rag_workspace_dir fail "RAG workspace dir missing: $DATA_DIR/data/workspace"
       fi
-      if [ -d "$DATA_DIR/data/sources" ]; then
+      if [ -d "$_data/data/sources" ]; then
         record_validation_check rag_source_dir pass "RAG sources dir exists"
       else
         record_validation_check rag_source_dir fail "RAG sources dir missing: $DATA_DIR/data/sources"
@@ -1143,12 +1335,12 @@ run_validation_checks() {
 
   case "$ROLE" in
     llm|both)
-      if [ -d "$DATA_DIR/models" ]; then
+      if [ -d "$_data/models" ]; then
         record_validation_check llm_model_dir pass "LLM model dir exists"
       else
         record_validation_check llm_model_dir fail "LLM model dir missing: $DATA_DIR/models"
       fi
-      _gguf=$(find "$DATA_DIR/models" -type f -name '*.gguf' 2>/dev/null | head -n 1)
+      _gguf=$(find "$_data/models" -type f -name '*.gguf' 2>/dev/null | head -n 1)
       if [ -n "$_gguf" ]; then
         record_validation_check llm_model_file pass "GGUF model file found under $DATA_DIR/models"
       else
@@ -1317,9 +1509,8 @@ print_success_message() {
 run_bootstrap() {
   install_os_prerequisites
   check_dependencies
-  check_path_writable "$PREFIX" "prefix"
-  check_path_writable "$DATA_DIR" "data dir"
-  check_path_writable "$GENERATED_DIR" "generated dir"
+  prepare_install_owned_paths
+  check_path_writable "$(map_install_path "$GENERATED_DIR")" "generated dir"
   ensure_clean_prefix
   clone_or_update_repo
   create_venv_and_install
@@ -1371,8 +1562,12 @@ main() {
     exit 0
   fi
 
+  validate_install_paths
+
   print_common_summary
   print_os_prerequisite_steps
+  echo ""
+  print_install_path_ownership_steps
   echo ""
   print_app_bootstrap_steps
   print_service_install_steps

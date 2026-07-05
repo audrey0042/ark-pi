@@ -1224,6 +1224,197 @@ def test_dry_run_validate_only_prints_validation_plan() -> None:
     assert "deploy preflight" in result.stdout
 
 
+def fake_system_root_env(
+    tmp_path: Path,
+    local_repo: Path,
+    *,
+    extra: dict[str, str] | None = None,
+    render_log: Path | None = None,
+    command_log: Path | None = None,
+    unwritable_parents: bool = True,
+) -> tuple[dict[str, str], Path]:
+    system_root = tmp_path / "system-root"
+    (system_root / "opt").mkdir(parents=True)
+    (system_root / "srv").mkdir(parents=True)
+    if unwritable_parents:
+        (system_root / "opt").chmod(0o555)
+        (system_root / "srv").chmod(0o555)
+    env = fake_helper_env(
+        local_repo,
+        extra=extra,
+        render_log=render_log,
+        command_log=command_log,
+    )
+    env["ARK_PI_INSTALL_TEST_SYSTEM_ROOT"] = str(system_root)
+    return env, system_root
+
+
+def test_dry_run_default_paths_prints_ownership_plan() -> None:
+    env = fake_helper_env(
+        REPO_ROOT,
+        extra={
+            "ARK_PI_INSTALL_TEST_UNWRITABLE_PREFIX_PARENT": "1",
+            "ARK_PI_INSTALL_TEST_UNWRITABLE_DATA_DIR_PARENT": "1",
+        },
+    )
+    result = run_install("--role", "rag", "--dry-run", env=env)
+    assert result.returncode == 0, result.stderr
+    assert "Install path ownership steps:" in result.stdout
+    assert "Install owner:" in result.stdout
+    assert "/opt/ark-pi" in result.stdout
+    assert "/srv/ark-pi" in result.stdout
+    assert "sudo mkdir -p" in result.stdout
+    assert "sudo chown" in result.stdout
+
+
+def test_dry_run_ownership_plan_creates_nothing(tmp_path: Path) -> None:
+    env, system_root = fake_system_root_env(tmp_path, REPO_ROOT)
+    result = run_install("--role", "rag", "--dry-run", env=env)
+    assert result.returncode == 0, result.stderr
+    assert "Install path ownership steps:" in result.stdout
+    assert not (system_root / "opt" / "ark-pi").exists()
+    assert not (system_root / "srv" / "ark-pi").exists()
+
+
+def test_system_root_install_prepares_paths_and_bootstraps(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env, system_root = fake_system_root_env(
+        tmp_path,
+        REPO_ROOT,
+        command_log=command_log,
+    )
+    result = run_install(
+        "--role",
+        "rag",
+        "--no-os-packages",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (system_root / "opt" / "ark-pi").is_dir()
+    assert (system_root / "srv" / "ark-pi").is_dir()
+    assert (system_root / "opt" / "ark-pi" / ".venv" / ".ark_installed").is_file()
+    log = read_command_log(command_log)
+    assert "sudo mkdir -p" in log
+    assert "sudo chown" in log
+    assert "git clone" in log
+    assert log.index("mkdir -p") < log.index("git clone")
+    for line in log.splitlines():
+        if "chown" in line:
+            assert "ark-pi" in line
+            assert not line.rstrip().endswith("/opt")
+            assert not line.rstrip().endswith("/srv")
+
+
+def test_tmp_prefix_skips_ownership_sudo(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--no-os-packages",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "chown" not in log
+    assert "sudo mkdir -p" not in log
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [
+        ("--prefix", "/opt"),
+        ("--prefix", "/"),
+        ("--data-dir", "/srv"),
+        ("--data-dir", "/"),
+    ],
+)
+def test_unsafe_install_path_rejected(
+    flag: str,
+    value: str,
+    tmp_path: Path,
+) -> None:
+    if flag == "--prefix":
+        other = ("--data-dir", str(tmp_path / "data"))
+    else:
+        other = ("--prefix", str(tmp_path / "prefix"))
+    env = fake_helper_env(REPO_ROOT)
+    result = run_install(
+        "--role",
+        "rag",
+        flag,
+        value,
+        other[0],
+        other[1],
+        "--no-os-packages",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "refusing unsafe install path" in result.stderr.lower()
+
+
+def test_ownership_prep_without_sudo_fails_before_clone(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(
+        REPO_ROOT,
+        command_log=command_log,
+        extra={
+            "ARK_PI_INSTALL_TEST_NO_SUDO": "1",
+            "ARK_PI_INSTALL_TEST_UNWRITABLE_PREFIX_PARENT": "1",
+            "ARK_PI_INSTALL_TEST_UNWRITABLE_DATA_DIR_PARENT": "1",
+        },
+    )
+    result = run_install(
+        "--role",
+        "rag",
+        "--no-os-packages",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "sudo required" in result.stderr.lower()
+    assert "git clone" not in read_command_log(command_log)
+
+
+def test_chown_failure_fails_before_clone(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env, _system_root = fake_system_root_env(
+        tmp_path,
+        REPO_ROOT,
+        command_log=command_log,
+        extra={"ARK_PI_INSTALL_CHOWN_FAIL": "1"},
+    )
+    result = run_install(
+        "--role",
+        "rag",
+        "--no-os-packages",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "chown" in result.stderr.lower()
+    assert "git clone" not in read_command_log(command_log)
+
+
 def test_validation_output_includes_pass_warning_fail_labels(tmp_path: Path) -> None:
     install = _run_rag_install(tmp_path)
     assert install.returncode == 0, install.stderr
