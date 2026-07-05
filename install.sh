@@ -668,10 +668,24 @@ install_os_prerequisites() {
   fi
 }
 
+# Test-only: map /etc paths into ARK_PI_INSTALL_TEST_SYSTEM_ROOT for offline tests.
+map_service_env_path() {
+  _path="$1"
+  if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+    case "$_path" in
+      /etc/*)
+        echo "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}${_path}"
+        return 0
+        ;;
+    esac
+  fi
+  echo "$_path"
+}
+
 service_dest() {
   _suffix="$1"
   if [ "$SERVICE_ROOT" = "/" ]; then
-    echo "$_suffix"
+    map_service_env_path "$_suffix"
     return 0
   fi
   echo "$SERVICE_ROOT$_suffix"
@@ -1212,6 +1226,15 @@ validation_env_service_path() {
   esac
 }
 
+validation_env_logical_service_path() {
+  _role="$1"
+  case "$_role" in
+    rag) echo /etc/ark-pi/ark-rag.env ;;
+    llm) echo /etc/ark-pi/ark-llm.env ;;
+    *) die "internal validation role error: $_role" ;;
+  esac
+}
+
 validation_env_generated_path() {
   _role="$1"
   _generated=$(map_install_path "$GENERATED_DIR")
@@ -1225,6 +1248,10 @@ validation_env_generated_path() {
 validation_env_display_path() {
   _role="$1"
   if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    if [ "$SERVICE_ROOT" = "/" ]; then
+      validation_env_logical_service_path "$_role"
+      return 0
+    fi
     validation_env_service_path "$_role"
     return 0
   fi
@@ -1260,6 +1287,47 @@ resolve_validation_env_file() {
     return 0
   fi
 
+  return 1
+}
+
+validation_env_read_path() {
+  map_service_env_path "$1"
+}
+
+should_use_sudo_for_env_read() {
+  _path="$1"
+  if [ "$SERVICE_ROOT" != "/" ]; then
+    return 1
+  fi
+  case "$_path" in
+    /etc/ark-pi/*.env)
+      return 0
+      ;;
+  esac
+  if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+    case "$_path" in
+      "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}"/etc/ark-pi/*.env)
+        return 0
+        ;;
+    esac
+  fi
+  return 1
+}
+
+read_role_env_content() {
+  _path="$1"
+  _read_path=$(validation_env_read_path "$_path")
+  if [ -r "$_read_path" ]; then
+    cat "$_read_path"
+    return 0
+  fi
+  if should_use_sudo_for_env_read "$_path"; then
+    if command_exists sudo; then
+      sudo cat "$_read_path"
+      return $?
+    fi
+    return 1
+  fi
   return 1
 }
 
@@ -1306,8 +1374,34 @@ export_allowed_ark_env_pair() {
 load_role_env_for_validation() {
   _path="$1"
   _role="$2"
+  _display="${3:-$_path}"
   _unknown=""
   _unknown_sep=""
+  _source=""
+  _cleanup=0
+
+  _read_path=$(validation_env_read_path "$_path")
+  if [ -r "$_read_path" ]; then
+    _source="$_read_path"
+  elif should_use_sudo_for_env_read "$_path"; then
+    if ! command_exists sudo; then
+      record_validation_check role_env_read fail "cannot read $_display (sudo unavailable)"
+      return 1
+    fi
+    _source=$(mktemp) || {
+      record_validation_check role_env_read fail "cannot read $_display"
+      return 1
+    }
+    _cleanup=1
+    if ! sudo cat "$_read_path" >"$_source" 2>/dev/null; then
+      rm -f "$_source"
+      record_validation_check role_env_read fail "cannot read $_display"
+      return 1
+    fi
+  else
+    record_validation_check role_env_read fail "cannot read $_display"
+    return 1
+  fi
 
   while IFS= read -r _line || [ -n "$_line" ]; do
     case "$_line" in
@@ -1316,7 +1410,10 @@ load_role_env_for_validation() {
     case "$_line" in
       *=*) ;;
       *)
-        record_validation_check role_env_parse fail "malformed line in $_path: $_line"
+        if [ "$_cleanup" -eq 1 ]; then
+          rm -f "$_source"
+        fi
+        record_validation_check role_env_parse fail "malformed line in $_display: $_line"
         return 1
         ;;
     esac
@@ -1327,10 +1424,14 @@ load_role_env_for_validation() {
     fi
     _unknown="$_unknown$_unknown_sep$_key"
     _unknown_sep=", "
-  done < "$_path"
+  done < "$_source"
+
+  if [ "$_cleanup" -eq 1 ]; then
+    rm -f "$_source"
+  fi
 
   if [ -n "$_unknown" ]; then
-    record_validation_check role_env_unknown_keys warning "unknown keys in $_path (ignored): $_unknown"
+    record_validation_check role_env_unknown_keys warning "unknown keys in $_display (ignored): $_unknown"
   fi
   return 0
 }
@@ -1349,7 +1450,7 @@ run_ark_with_role_env() {
   if [ "$VALIDATION_ENV_FALLBACK" -eq 1 ]; then
     record_validation_check role_env_file warning "generated env missing; using service env: $_env_file"
   fi
-  if ! load_role_env_for_validation "$_env_file" "$_role"; then
+  if ! load_role_env_for_validation "$_env_file" "$_role" "$_display"; then
     return 1
   fi
   if "$_ark" "$@" >/dev/null 2>&1; then
@@ -1618,6 +1719,7 @@ print_validation_plan_steps() {
     echo "  Skip service file checks (no --install-services and no files found)"
   fi
   echo "  Does not install llama.cpp, download models, or configure networking"
+  echo "  Verify role env file is readable before ark commands (role_env_read; sudo cat for /etc/ark-pi/*.env when service root is /)"
 }
 
 print_validate_only_plan() {
@@ -1638,6 +1740,28 @@ print_post_install_validation_note() {
   echo "Post-install validation: will run after install unless --no-validate"
 }
 
+should_print_sudo_env_load() {
+  _env_file="$1"
+  if [ "$INSTALL_SERVICES" -eq 0 ]; then
+    return 1
+  fi
+  if [ "$SERVICE_ROOT" != "/" ]; then
+    return 1
+  fi
+  case "$_env_file" in
+    /etc/ark-pi/*.env)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+print_sudo_env_ark_command() {
+  _env_file="$1"
+  _ark_cmd="$2"
+  echo "  sudo sh -c 'set -a; . $_env_file; set +a; exec $_ark_cmd'"
+}
+
 print_env_load_block() {
   _env_file="$1"
   echo "  set -a"
@@ -1650,6 +1774,14 @@ print_role_validation_commands() {
   _ark="$2"
   _env_file=$(validation_env_display_path "$_role")
   echo "Role env ($_role): $_env_file"
+  if should_print_sudo_env_load "$_env_file"; then
+    echo "  Installed service env files are root:root mode 0640."
+    print_sudo_env_ark_command "$_env_file" "$_ark preflight"
+    case "$_role" in
+      rag) print_sudo_env_ark_command "$_env_file" "$_ark llm status" ;;
+    esac
+    return 0
+  fi
   print_env_load_block "$_env_file"
   echo "  $_ark preflight"
   case "$_role" in
@@ -1678,7 +1810,11 @@ print_validation_commands() {
   echo ""
   echo "One-liner example (rag):"
   _rag_env=$(validation_env_display_path rag)
-  echo "  set -a; . $_rag_env; set +a; $_ark preflight"
+  if should_print_sudo_env_load "$_rag_env"; then
+    print_sudo_env_ark_command "$_rag_env" "$_ark preflight"
+  else
+    echo "  set -a; . $_rag_env; set +a; $_ark preflight"
+  fi
   echo ""
   echo "  $_ark llm test --llm-backend mock"
   echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"

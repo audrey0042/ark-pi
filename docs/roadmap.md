@@ -226,6 +226,12 @@ sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-r
 
 **Status: OS packages + path ownership + app bootstrap + render + service files + validation done; llm/network not started**
 
+## 45. Service env validation permissions
+
+Fix env-aware validation for installed service env files (`/etc/ark-pi/*.env`, `root:root` mode `0640`). Unreadable env files fail with `role_env_read` before `ark` commands run. Real `/etc` installs use read-only `sudo cat` for validation; generated and redirected service-root env reads stay unprivileged. Printed manual validation commands use `sudo sh -c` for installed service env files.
+
+**Status: done**
+
 ## 44. Install path ownership
 
 Prepare default `/opt/ark-pi` and `/srv/ark-pi` with sudo when needed: `mkdir -p` on the selected leaf directories, `chown` only those paths to the invoking user, then run git/venv/pip/render/validation unprivileged. Motivated by a real rag-pi failure after apt prerequisites (`cannot create prefix under unwritable parent: /opt`). Dry-run prints the ownership plan without mutations. Rejects unsafe exact paths (`/`, `/opt`, `/srv`, etc.).
