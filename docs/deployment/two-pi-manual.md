@@ -233,10 +233,13 @@ curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh |
   --role llm --llama-build --install-services --yes
 ```
 
+Re-running the installer on an existing `/opt/ark-pi` git checkout fast-forwards to `origin/main` before `pip install -e`. Uncommitted local edits under `/opt/ark-pi` cause a clear failure instead of being overwritten.
+
 Default paths:
 
 - Source: `/opt/ark-pi/vendor/llama.cpp`
 - Binary: `/opt/ark-pi/vendor/llama.cpp/build/bin/llama-server` (`ARK_LLAMA_BIN` in `ark-llm.env`)
+- Configure: `cmake -S /opt/ark-pi/vendor/llama.cpp -B /opt/ark-pi/vendor/llama.cpp/build` (installer passes `-S` explicitly)
 
 You can still build manually under another path; ensure `ARK_LLAMA_BIN` in your env file matches.
 

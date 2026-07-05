@@ -1100,7 +1100,7 @@ print_llama_build_steps() {
   echo ""
   echo "llama.cpp build steps:"
   echo "  Clone or update llama.cpp at $LLAMA_DIR from $LLAMA_REPO (ref $LLAMA_REF)"
-  echo "  Run cmake -B $LLAMA_BUILD_DIR -DCMAKE_BUILD_TYPE=Release"
+  echo "  Run cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR -DCMAKE_BUILD_TYPE=Release"
   resolve_build_jobs
   echo "  Run cmake --build $LLAMA_BUILD_DIR --config Release -j $BUILD_JOBS"
   echo "  Verify $LLAMA_BIN exists and is executable"
@@ -1260,7 +1260,7 @@ ensure_clean_prefix() {
   fi
   if [ -d "$_pref/.git" ]; then
     if [ -n "$(git -C "$_pref" status --porcelain 2>/dev/null)" ]; then
-      die "prefix git checkout has local changes; commit or stash before re-running install.sh"
+      die "prefix git checkout at $PREFIX has local changes; inspect $_pref and commit or stash before re-running install.sh"
     fi
     return 0
   fi
@@ -1310,6 +1310,27 @@ require_confirmation_for_mutation() {
   esac
 }
 
+git_worktree_is_dirty() {
+  _path="$1"
+  [ -n "$(git -C "$_path" status --porcelain 2>/dev/null)" ]
+}
+
+git_fast_forward_branch() {
+  _path="$1"
+  _branch="$2"
+  _label="$3"
+  _display_path="$4"
+  if git_worktree_is_dirty "$_path"; then
+    die "$_label checkout at $_display_path has local modifications; inspect $_path and commit or stash before re-running install.sh"
+  fi
+  git -C "$_path" fetch origin "$_branch"
+  git -C "$_path" checkout "$_branch"
+  if ! git -C "$_path" merge --ff-only "origin/$_branch"; then
+    die "$_label checkout at $_display_path cannot fast-forward to origin/$_branch; inspect $_path (local commits or diverged history)"
+  fi
+  echo "Updated $_label checkout at $_display_path to origin/$_branch"
+}
+
 clone_or_update_repo() {
   _pref=$(map_install_path "$PREFIX")
   if [ ! -d "$_pref" ]; then
@@ -1319,8 +1340,7 @@ clone_or_update_repo() {
     return 0
   fi
   if [ -d "$_pref/.git" ]; then
-    git -C "$_pref" fetch origin "$BRANCH"
-    git -C "$_pref" checkout "$BRANCH"
+    git_fast_forward_branch "$_pref" "$BRANCH" "Ark Pi" "$PREFIX"
     return 0
   fi
   git clone --branch "$BRANCH" "$REPO" "$_pref"
@@ -1334,8 +1354,19 @@ clone_or_update_llama_repo() {
     git clone "$LLAMA_REPO" "$_dir"
   fi
   if [ -d "$_dir/.git" ]; then
+    if git_worktree_is_dirty "$_dir"; then
+      die "llama.cpp checkout at $LLAMA_DIR has local modifications; inspect $_dir and commit or stash before re-running install.sh"
+    fi
     git -C "$_dir" fetch origin "$LLAMA_REF" 2>/dev/null || git -C "$_dir" fetch origin 2>/dev/null || true
-    git -C "$_dir" checkout "$LLAMA_REF"
+    if git -C "$_dir" show-ref --verify --quiet "refs/remotes/origin/$LLAMA_REF" 2>/dev/null; then
+      git -C "$_dir" checkout "$LLAMA_REF"
+      if ! git -C "$_dir" merge --ff-only "origin/$LLAMA_REF"; then
+        die "llama.cpp checkout at $LLAMA_DIR cannot fast-forward to origin/$LLAMA_REF; inspect $_dir (local commits or diverged history)"
+      fi
+      echo "Updated llama.cpp checkout at $LLAMA_DIR to origin/$LLAMA_REF"
+    else
+      git -C "$_dir" checkout "$LLAMA_REF"
+    fi
     return 0
   fi
   die "llama.cpp path exists but is not a git checkout: $LLAMA_DIR"
@@ -1349,9 +1380,10 @@ build_llama_cpp() {
     die "cmake not found (required for --llama-build)"
   fi
   clone_or_update_llama_repo
+  _llama_dir=$(map_install_path "$LLAMA_DIR")
   _build_dir=$(map_install_path "$LLAMA_BUILD_DIR")
   _bin=$(map_install_path "$LLAMA_BIN")
-  if ! cmake -B "$_build_dir" -DCMAKE_BUILD_TYPE=Release; then
+  if ! cmake -S "$_llama_dir" -B "$_build_dir" -DCMAKE_BUILD_TYPE=Release; then
     die "cmake configure failed for llama.cpp"
   fi
   resolve_build_jobs

@@ -240,7 +240,9 @@ Model acquisition, model selection, networking/AP, and RAG-to-LLM integration sm
 
 **Real llm-pi baseline (before `--llama-build`):** `--role llm --install-services --no-start --yes` completed with PASS (warnings) for missing model and inactive service. Legacy `ARK_LLAMACPP_*` env keys observed on installed baseline; new renders migrate to `ARK_LLAMA_*` / `ARK_MODEL_*`.
 
-**Status: done (installer automation; model download still manual)**
+**Real llm-pi `--llama-build` hotfix (pending hardware rerun):** first `--llama-build` run failed because CMake configure omitted `-S` (used caller cwd) and an existing `/opt/ark-pi` checkout stayed behind `origin/main` after fetch-only update. Hotfix: explicit `cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR` and safe fast-forward of existing app/llama.cpp git checkouts before reinstall/build.
+
+**Status: done (installer automation; model download still manual; real `--llama-build` rerun pending)**
 
 ## 45. Service env validation permissions
 

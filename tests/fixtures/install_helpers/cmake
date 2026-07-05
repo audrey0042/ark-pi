@@ -16,15 +16,6 @@ if [ "${ARK_PI_INSTALL_CMAKE_FAIL:-0}" = "1" ]; then
   die "cmake failed (test hook)"
 fi
 
-if [ "$1" = "-B" ]; then
-  log_command "$@"
-  if [ -z "${2:-}" ]; then
-    die "missing build directory"
-  fi
-  mkdir -p "$2"
-  exit 0
-fi
-
 if [ "$1" = "--build" ]; then
   log_command "$@"
   if [ -z "${2:-}" ]; then
@@ -51,6 +42,46 @@ fi
 exit 0
 EOF
   chmod +x "$_bin"
+  exit 0
+fi
+
+_source_dir=""
+_build_dir=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -S)
+      if [ -z "${2:-}" ]; then
+        die "missing source directory"
+      fi
+      _source_dir="$2"
+      shift 2
+      ;;
+    -B)
+      if [ -z "${2:-}" ]; then
+        die "missing build directory"
+      fi
+      _build_dir="$2"
+      shift 2
+      ;;
+    -DCMAKE_BUILD_TYPE=*)
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+if [ -n "$_build_dir" ]; then
+  log_command -S "$_source_dir" -B "$_build_dir" -DCMAKE_BUILD_TYPE=Release
+  if [ -z "$_source_dir" ]; then
+    die "The source directory does not appear to contain CMakeLists.txt (missing -S)"
+  fi
+  if [ ! -f "$_source_dir/CMakeLists.txt" ]; then
+    die "The source directory $_source_dir does not appear to contain CMakeLists.txt"
+  fi
+  mkdir -p "$_build_dir"
   exit 0
 fi
 

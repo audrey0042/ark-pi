@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -73,6 +74,21 @@ def read_command_log(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def copy_repo_tree(source: Path, dest: Path) -> None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(
+        source,
+        dest,
+        ignore=shutil.ignore_patterns(".venv", ".git", "__pycache__", "*.pyc"),
+    )
+
+
+def seed_existing_git_checkout(prefix: Path, source: Path) -> None:
+    copy_repo_tree(source, prefix)
+    (prefix / ".git").mkdir()
 
 
 def test_install_sh_is_executable() -> None:
@@ -700,6 +716,67 @@ def test_existing_git_checkout_with_local_changes_fails(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "local changes" in result.stderr.lower() or "local changes" in result.stdout.lower()
+
+
+def test_existing_checkout_behind_origin_fast_forwards_before_pip(tmp_path: Path) -> None:
+    current = tmp_path / "current"
+    stale = tmp_path / "stale"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    copy_repo_tree(REPO_ROOT, stale)
+    copy_repo_tree(REPO_ROOT, current)
+    marker = current / ".install_ff_test_marker"
+    marker.write_text("new", encoding="utf-8")
+    seed_existing_git_checkout(prefix, stale)
+    assert not (prefix / ".install_ff_test_marker").exists()
+    env = fake_helper_env(
+        current,
+        extra={"ARK_INSTALL_GIT_BEHIND": "1"},
+        command_log=command_log,
+    )
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--no-os-packages",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (prefix / ".install_ff_test_marker").read_text(encoding="utf-8") == "new"
+    log = read_command_log(command_log)
+    assert "merge --ff-only" in log
+    assert "pip install" in log
+    assert log.index("merge --ff-only") < log.index("pip install")
+
+
+def test_existing_checkout_diverged_fails_before_pip(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    seed_existing_git_checkout(prefix, REPO_ROOT)
+    env = fake_helper_env(REPO_ROOT, {"ARK_INSTALL_GIT_DIVERGED": "1"})
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--no-os-packages",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode != 0
+    combined = f"{result.stdout}\n{result.stderr}".lower()
+    assert "fast-forward" in combined or "diverged" in combined
 
 
 def test_yes_flag_accepted_in_dry_run() -> None:
@@ -2060,7 +2137,15 @@ def test_llm_dry_run_with_llama_build_lists_llama_apt_packages() -> None:
     assert result.returncode == 0, result.stderr
     for package in EXPECTED_LLM_APT_PACKAGES:
         assert package in result.stdout
-    assert "cmake -B" in result.stdout
+    assert "cmake -S" in result.stdout
+    assert " -B " in result.stdout
+
+
+def test_llm_dry_run_llama_build_shows_cmake_source_dir() -> None:
+    result = run_install("--role", "llm", "--llama-build", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "cmake -S" in result.stdout
+    assert "vendor/llama.cpp" in result.stdout
 
 
 def test_llm_dry_run_llama_build_creates_nothing(tmp_path: Path) -> None:
@@ -2092,6 +2177,27 @@ def test_rag_llama_build_fails_clearly() -> None:
     assert "--llama-build requires role llm or both" in result.stderr
 
 
+def test_cmake_fixture_fails_without_source_dir() -> None:
+    cmake = FAKE_BIN / "cmake"
+    result = subprocess.run(
+        [str(cmake), "-B", str(REPO_ROOT / "tmp-build")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "missing -S" in result.stderr or "CMakeLists.txt" in result.stderr
+
+
+def test_llm_llama_build_configure_uses_explicit_source_dir(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    result, _, log = _run_llm_install_with_command_log(tmp_path, llama_build=True)
+    assert result.returncode == 0, result.stderr
+    llama_dir = prefix / "vendor" / "llama.cpp"
+    assert f"-S {llama_dir}" in log.replace("\\", "/") or "-S" in log
+    assert f"-B {llama_dir / 'build'}" in log.replace("\\", "/") or "-B" in log
+
+
 def test_llm_llama_build_creates_fake_llama_server_binary(tmp_path: Path) -> None:
     prefix = tmp_path / "prefix"
     result, _, log = _run_llm_install_with_command_log(tmp_path, llama_build=True)
@@ -2100,8 +2206,10 @@ def test_llm_llama_build_creates_fake_llama_server_binary(tmp_path: Path) -> Non
     assert llama_bin.is_file()
     assert llama_bin.stat().st_mode & 0o111
     assert "git clone" in log
-    assert "cmake -B" in log
+    assert "cmake -S" in log
+    assert " -B " in log
     assert "cmake --build" in log
+    assert f"-S {prefix / 'vendor' / 'llama.cpp'}" in log.replace("\\", "/") or "-S" in log
     data_dir = tmp_path / "data"
     env_content = data_dir / "deploy" / "generated" / "ark-llm.env"
     assert env_content.is_file()

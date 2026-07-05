@@ -12,6 +12,17 @@ log_command() {
   fi
 }
 
+sync_worktree_from_origin() {
+  _worktree="$1"
+  _source="${ARK_INSTALL_LOCAL_REPO}"
+  if [ -z "$_source" ] || [ ! -d "$_source" ]; then
+    die "ARK_INSTALL_LOCAL_REPO is not set"
+  fi
+  find "$_worktree" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+  cp -a "$_source/." "$_worktree/"
+  rm -rf "$_worktree/.venv"
+}
+
 if [ "$1" = "clone" ]; then
   log_command "$@"
   shift
@@ -63,12 +74,28 @@ if [ "$1" = "-C" ]; then
   shift
   _worktree="$1"
   shift
+  log_command -C "$_worktree" "$@"
   case "$1" in
     fetch)
       exit 0
       ;;
     checkout)
       exit 0
+      ;;
+    merge)
+      shift
+      if [ "$1" = "--ff-only" ]; then
+        shift
+        _remote_ref="$1"
+        if [ "${ARK_INSTALL_GIT_DIVERGED:-0}" = "1" ]; then
+          die "merge --ff-only failed (test hook: diverged history)"
+        fi
+        if [ "${ARK_INSTALL_GIT_BEHIND:-0}" = "1" ]; then
+          sync_worktree_from_origin "$_worktree"
+        fi
+        exit 0
+      fi
+      die "unsupported git merge invocation: merge $*"
       ;;
     status)
       shift
@@ -83,6 +110,24 @@ if [ "$1" = "-C" ]; then
         echo true
       fi
       exit 0
+      ;;
+    show-ref)
+      shift
+      if [ "$1" = "--verify" ] && [ "$2" = "--quiet" ]; then
+        _ref="$3"
+        case "$_ref" in
+          refs/remotes/origin/main|refs/remotes/origin/master)
+            exit 0
+            ;;
+        esac
+        if [ -n "${ARK_INSTALL_GIT_REMOTE_BRANCH:-}" ]; then
+          if [ "$_ref" = "refs/remotes/origin/$ARK_INSTALL_GIT_REMOTE_BRANCH" ]; then
+            exit 0
+          fi
+        fi
+        exit 1
+      fi
+      die "unsupported git show-ref invocation: show-ref $*"
       ;;
     *)
       die "unsupported git -C command: $1"

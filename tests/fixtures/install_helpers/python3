@@ -15,6 +15,9 @@ if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
   cat > "$_venv/bin/pip" <<'EOF'
 #!/bin/sh
 if [ "$1" = "install" ] && [ "$2" = "-e" ]; then
+  if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+    echo "pip install -e $3" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+  fi
   touch "$(dirname "$0")/../.ark_installed"
   exit 0
 fi

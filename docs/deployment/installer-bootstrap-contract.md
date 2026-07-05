@@ -62,6 +62,17 @@ Do not run `curl | sudo sh` unless you intentionally want a root-owned install. 
 
 Unsafe install paths are rejected (`/`, `/opt`, `/srv`, etc. as exact paths). `/opt/ark-pi` and `/srv/ark-pi` are allowed.
 
+## Existing app checkout updates
+
+When `--prefix` already contains a git checkout (typical reruns on `/opt/ark-pi`), `install.sh`:
+
+1. Fetches `origin/$BRANCH`.
+2. Fails if the checkout has uncommitted local changes (`git status --porcelain`); inspect `$PREFIX`, commit or stash, then rerun. The installer does **not** hard-reset or clobber operator edits.
+3. Checks out `$BRANCH` and fast-forwards with `git merge --ff-only origin/$BRANCH` before `pip install -e`.
+4. Fails clearly if fast-forward is impossible (local commits or diverged history).
+
+Dry-run prints the plan only; no git mutations occur.
+
 ## Target user experience
 
 Interactive one-liner (planner v0; pass `--role` when piping from curl):
@@ -213,7 +224,7 @@ Services (when `--install-services`, or service files exist under service root):
 8. Ask confirmation unless `--yes`.
 9. Install OS prerequisite packages via apt (when enabled; uses sudo when not root).
 10. Prepare install-owned paths (`--prefix`, `--data-dir`) with sudo when needed; chown leaf dirs to invoking user.
-11. Clone or update repo at `--prefix`.
+11. Clone or update repo at `--prefix` (existing git checkouts: fetch, reject dirty trees, fast-forward with `git merge --ff-only origin/$BRANCH`; no hard reset).
 12. Create Python virtualenv and `pip install` Ark Pi.
 13. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
 14. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
@@ -234,7 +245,7 @@ Services (when `--install-services`, or service files exist under service root):
 ### `llm`
 
 - Create model directory under `--model-dir` (default `$DATA_DIR/models`); do not fetch a GGUF.
-- Optional `--llama-build`: clone llama.cpp to `$PREFIX/vendor/llama.cpp`, cmake build `llama-server` at `$PREFIX/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`.
+- Optional `--llama-build`: clone llama.cpp to `$PREFIX/vendor/llama.cpp`, cmake configure with explicit source dir (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`), build `llama-server` at `$PREFIX/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Caller working directory is not reliable for CMake; always pass `-S`.
 - Render `ark-llm.env` and `ark-llm.service` with `ARK_LLAMA_BIN`, `ARK_MODEL_PATH`, host/port, context, threads.
 - With `--install-services`: if `model.gguf` is missing, install and enable `ark-llm.service` but skip `systemctl start` until the operator places the model.
 - Validation: missing model file is a **warning** by default; **`--require-model`** makes it a failure. Missing `llama-server` binary fails only when llama.cpp build is expected (`--llama-build` or existing source tree). `--validate-only` never clones, builds, or installs apt packages.
@@ -310,6 +321,8 @@ sh install.sh --role llm --llama-build --install-services --yes
 ```
 
 Model at `/srv/ark-pi/models/model.gguf` remains manual. Service start is deferred when the model is absent unless `--require-model` (which fails install/validation instead).
+
+**Real llm-pi `--llama-build` finding (hotfix):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Existing `/opt/ark-pi` checkouts were also left behind `origin/main` after fetch-only updates; reruns now fast-forward before reinstalling. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
 
 ## Related docs
 
