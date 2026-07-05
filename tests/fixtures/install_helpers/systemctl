@@ -10,6 +10,9 @@ case "$1" in
     if [ "${ARK_PI_INSTALL_SYSTEMCTL_DISABLED:-0}" = "1" ]; then
       exit 1
     fi
+    if [ "$1" = "is-active" ] && [ "${ARK_PI_INSTALL_SYSTEMCTL_INACTIVE:-0}" = "1" ]; then
+      exit 1
+    fi
     exit 0
     ;;
   daemon-reload|enable|start|disable|stop|restart)

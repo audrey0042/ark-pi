@@ -201,7 +201,7 @@ def _check_template_content(
             problems.append(f"{LLM_ENV_FILENAME} missing ARK_ROLE=llm")
         if llm_service_error:
             problems.append(f"{LLM_SERVICE_FILENAME}: {llm_service_error}")
-        elif llm_service is not None and "${ARK_LLAMACPP_SERVER_BIN}" not in llm_service:
+        elif llm_service is not None and "${ARK_LLAMA_BIN}" not in llm_service:
             problems.append(
                 f"{LLM_SERVICE_FILENAME} does not reference llama-server variables"
             )
@@ -432,6 +432,14 @@ def _check_rag_llm_base_url(generated_dir: Path) -> DeploymentPreflightCheck:
     )
 
 
+def _llm_env_value(values: dict[str, str], *keys: str) -> str:
+    for key in keys:
+        raw = values.get(key, "").strip()
+        if raw:
+            return raw
+    return ""
+
+
 def _check_llm_llama_binary(generated_dir: Path) -> DeploymentPreflightCheck:
     env_path = generated_dir / LLM_ENV_FILENAME
     content, read_error = _read_text(env_path)
@@ -444,13 +452,13 @@ def _check_llm_llama_binary(generated_dir: Path) -> DeploymentPreflightCheck:
             details={"path": str(env_path)},
         )
     values, _errors = parse_env_file(content)
-    binary_raw = values.get("ARK_LLAMACPP_SERVER_BIN", "").strip()
+    binary_raw = _llm_env_value(values, "ARK_LLAMA_BIN", "ARK_LLAMACPP_SERVER_BIN")
     if not binary_raw:
         return DeploymentPreflightCheck(
             id="llm_llama_binary",
             label="LLM llama-server binary",
             status="fail",
-            message="ARK_LLAMACPP_SERVER_BIN is missing or empty in ark-llm.env.",
+            message="ARK_LLAMA_BIN is missing or empty in ark-llm.env.",
             details={},
         )
     binary_path = Path(binary_raw)
@@ -486,13 +494,13 @@ def _check_llm_model_path(generated_dir: Path) -> DeploymentPreflightCheck:
             details={"path": str(env_path)},
         )
     values, _errors = parse_env_file(content)
-    model_raw = values.get("ARK_LLAMACPP_MODEL_PATH", "").strip()
+    model_raw = _llm_env_value(values, "ARK_MODEL_PATH", "ARK_LLAMACPP_MODEL_PATH")
     if not model_raw:
         return DeploymentPreflightCheck(
             id="llm_model_path",
             label="LLM model path",
             status="fail",
-            message="ARK_LLAMACPP_MODEL_PATH is missing or empty in ark-llm.env.",
+            message="ARK_MODEL_PATH is missing or empty in ark-llm.env.",
             details={},
         )
     model_path = Path(model_raw)
@@ -525,13 +533,13 @@ def _check_llm_port(generated_dir: Path) -> DeploymentPreflightCheck:
             details={"path": str(env_path)},
         )
     values, _errors = parse_env_file(content)
-    port_raw = values.get("ARK_LLM_PORT", "").strip()
+    port_raw = _llm_env_value(values, "ARK_LLAMA_PORT", "ARK_LLM_PORT")
     if not port_raw:
         return DeploymentPreflightCheck(
             id="llm_port",
             label="LLM port",
             status="fail",
-            message="ARK_LLM_PORT is missing or empty in ark-llm.env.",
+            message="ARK_LLAMA_PORT is missing or empty in ark-llm.env.",
             details={},
         )
     if not re.fullmatch(r"[0-9]+", port_raw):
@@ -539,7 +547,7 @@ def _check_llm_port(generated_dir: Path) -> DeploymentPreflightCheck:
             id="llm_port",
             label="LLM port",
             status="fail",
-            message=f"ARK_LLM_PORT is not a valid integer: {port_raw!r}",
+            message=f"ARK_LLAMA_PORT is not a valid integer: {port_raw!r}",
             details={"port": port_raw},
         )
     port = int(port_raw)

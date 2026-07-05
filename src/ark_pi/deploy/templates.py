@@ -8,6 +8,11 @@ TemplateRole = Literal["rag", "llm"]
 
 DEFAULT_OUTPUT_DIR = Path("./deploy/generated")
 
+DEFAULT_LLM_PREFIX = "/opt/ark-pi"
+DEFAULT_LLM_MODEL_DIR = "/srv/ark-pi/models"
+DEFAULT_LLM_MODEL_PATH = f"{DEFAULT_LLM_MODEL_DIR}/model.gguf"
+DEFAULT_LLM_BIN = f"{DEFAULT_LLM_PREFIX}/vendor/llama.cpp/build/bin/llama-server"
+
 FORBIDDEN_OUTPUT_ROOTS = (
     Path("/etc"),
     Path("/usr"),
@@ -42,29 +47,62 @@ Restart=on-failure
 WantedBy=multi-user.target
 """
 
-ARK_LLM_ENV = """\
-ARK_ROLE=llm
-ARK_LLM_HOST=0.0.0.0
-ARK_LLM_PORT=8080
-ARK_LLAMACPP_SERVER_BIN=/opt/llama.cpp/llama-server
-ARK_LLAMACPP_MODEL_PATH=/srv/ark-pi/models/model.gguf
-ARK_LLAMACPP_CTX_SIZE=4096
-ARK_LLAMACPP_THREADS=4
-ARK_LLAMACPP_EXTRA_ARGS=
-"""
 
-ARK_LLM_SERVICE = """\
-[Unit]
-Description=Ark Pi LLM Server
+@dataclass(frozen=True)
+class LlmRenderConfig:
+    prefix: str = DEFAULT_LLM_PREFIX
+    llama_host: str = "0.0.0.0"
+    llama_port: int = 8080
+    model_dir: str = DEFAULT_LLM_MODEL_DIR
+    model_path: str = DEFAULT_LLM_MODEL_PATH
+    context_size: int = 4096
+    threads: int = 4
+    llama_bin: str = DEFAULT_LLM_BIN
 
-[Service]
-EnvironmentFile=/etc/ark-pi/ark-llm.env
-ExecStart=${ARK_LLAMACPP_SERVER_BIN} --host ${ARK_LLM_HOST} --port ${ARK_LLM_PORT} --model ${ARK_LLAMACPP_MODEL_PATH} --ctx-size ${ARK_LLAMACPP_CTX_SIZE} --threads ${ARK_LLAMACPP_THREADS} ${ARK_LLAMACPP_EXTRA_ARGS}
-Restart=on-failure
 
-[Install]
-WantedBy=multi-user.target
-"""
+def llama_server_exec_start() -> str:
+    """Conservative llama-server ExecStart using env vars (revise flags in one place)."""
+    return (
+        "${ARK_LLAMA_BIN} --host ${ARK_LLAMA_HOST} --port ${ARK_LLAMA_PORT} "
+        "--model ${ARK_MODEL_PATH} --ctx-size ${ARK_CONTEXT_SIZE} --threads ${ARK_THREADS}"
+    )
+
+
+def render_llm_env(config: LlmRenderConfig | None = None) -> str:
+    cfg = config or LlmRenderConfig()
+    return (
+        "ARK_ROLE=llm\n"
+        f"ARK_LLAMA_HOST={cfg.llama_host}\n"
+        f"ARK_LLAMA_PORT={cfg.llama_port}\n"
+        f"ARK_MODEL_DIR={cfg.model_dir}\n"
+        f"ARK_MODEL_PATH={cfg.model_path}\n"
+        f"ARK_CONTEXT_SIZE={cfg.context_size}\n"
+        f"ARK_THREADS={cfg.threads}\n"
+        f"ARK_LLAMA_BIN={cfg.llama_bin}\n"
+    )
+
+
+def render_llm_service(config: LlmRenderConfig | None = None) -> str:
+    cfg = config or LlmRenderConfig()
+    exec_start = llama_server_exec_start()
+    return (
+        "[Unit]\n"
+        "Description=Ark Pi LLM Server\n"
+        "\n"
+        "[Service]\n"
+        "EnvironmentFile=/etc/ark-pi/ark-llm.env\n"
+        f"WorkingDirectory={cfg.prefix}\n"
+        f"ExecStart={exec_start}\n"
+        "Restart=on-failure\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+
+
+DEFAULT_LLM_RENDER_CONFIG = LlmRenderConfig()
+ARK_LLM_ENV = render_llm_env(DEFAULT_LLM_RENDER_CONFIG)
+ARK_LLM_SERVICE = render_llm_service(DEFAULT_LLM_RENDER_CONFIG)
 
 
 @dataclass(frozen=True)
@@ -91,15 +129,24 @@ class RenderResult:
     message: str
 
 
+def _llm_templates(config: LlmRenderConfig | None = None) -> tuple[TemplateDefinition, ...]:
+    return (
+        TemplateDefinition("ark-llm.env", render_llm_env(config), "env", "llm"),
+        TemplateDefinition(
+            "ark-llm.service",
+            render_llm_service(config),
+            "systemd",
+            "llm",
+        ),
+    )
+
+
 RAG_TEMPLATES: tuple[TemplateDefinition, ...] = (
     TemplateDefinition("ark-rag.env", ARK_RAG_ENV, "env", "rag"),
     TemplateDefinition("ark-rag.service", ARK_RAG_SERVICE, "systemd", "rag"),
 )
 
-LLM_TEMPLATES: tuple[TemplateDefinition, ...] = (
-    TemplateDefinition("ark-llm.env", ARK_LLM_ENV, "env", "llm"),
-    TemplateDefinition("ark-llm.service", ARK_LLM_SERVICE, "systemd", "llm"),
-)
+LLM_TEMPLATES: tuple[TemplateDefinition, ...] = _llm_templates()
 
 
 def _is_under(path: Path, root: Path) -> bool:
@@ -123,12 +170,15 @@ def validate_output_dir(output_dir: Path) -> Path:
     return resolved
 
 
-def _templates_for_role(role: DeployRole) -> tuple[TemplateDefinition, ...]:
+def _templates_for_role(
+    role: DeployRole,
+    llm_config: LlmRenderConfig | None = None,
+) -> tuple[TemplateDefinition, ...]:
     if role == "rag":
         return RAG_TEMPLATES
     if role == "llm":
-        return LLM_TEMPLATES
-    return RAG_TEMPLATES + LLM_TEMPLATES
+        return _llm_templates(llm_config)
+    return RAG_TEMPLATES + _llm_templates(llm_config)
 
 
 def render_deployment_templates(
@@ -136,10 +186,11 @@ def render_deployment_templates(
     *,
     role: DeployRole = "all",
     force: bool = False,
+    llm_config: LlmRenderConfig | None = None,
 ) -> RenderResult:
     """Render deployment env and systemd templates to output_dir (dry-run scaffold only)."""
     resolved_output = validate_output_dir(Path(output_dir))
-    templates = _templates_for_role(role)
+    templates = _templates_for_role(role, llm_config)
 
     existing_conflicts: list[str] = []
     for template in templates:

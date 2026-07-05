@@ -8,7 +8,7 @@ Laptop-only smoke test first: [README quickstart](../../README.md#quickstart).
 
 This is manual steps, not an installer. I haven't run the full stack end-to-end on real Pi hardware from this repo. Paths and systemd snippets are examples to edit.
 
-`install.sh` can install base OS prerequisites on apt-based hosts (Raspberry Pi OS, Debian, Ubuntu), bootstrap the app, render templates, validate the result (`--validate-only` or automatic post-install validation), and with `--install-services` install generated env/systemd files (use `--service-root /tmp/...` to review without touching real `/etc`). Use `--no-os-packages` when packages are already installed. llama.cpp, models, and network setup remain manual here.
+`install.sh` can install base OS prerequisites on apt-based hosts (Raspberry Pi OS, Debian, Ubuntu), bootstrap the app, optionally build llama.cpp with `--llama-build`, render templates, validate the result (`--validate-only` or automatic post-install validation), and with `--install-services` install generated env/systemd files (use `--service-root /tmp/...` to review without touching real `/etc`). Use `--no-os-packages` when packages are already installed. GGUF model download and network setup remain manual.
 
 ## What the CLI does and doesn't do
 
@@ -61,7 +61,7 @@ If packages are already present, skip apt and verify commands only:
 sh install.sh --role rag --no-os-packages --dry-run
 ```
 
-llama.cpp build, GGUF model placement, and network/WiFi setup remain manual on ark-llm and are documented separately below.
+Optional `install.sh --llama-build` automates llama.cpp source build; GGUF model placement and network/WiFi setup remain manual on ark-llm and are documented below.
 
 On a sudo-capable user account, `install.sh` can prepare default `/opt/ark-pi` and `/srv/ark-pi` automatically (sudo `mkdir` + leaf `chown` to the invoking user). git, venv, pip, and deploy render still run unprivileged:
 
@@ -224,31 +224,46 @@ From staging or `deploy/generated/`:
 - `templates/ark-llm.env`: binary path, model path, host, port
 - `templates/ark-llm.service`: example unit file
 
-### 2. Install llama.cpp manually
+### 2. Build llama.cpp (optional automation)
 
-Ark Pi does **not** install llama.cpp. Build or install it on ark-llm outside this automation, for example under `/opt/llama.cpp/`. See upstream llama.cpp documentation for Pi/aarch64 build steps.
+`install.sh` can clone and build llama.cpp when you pass `--llama-build` (role `llm` or `both`):
 
-Ensure the server binary path matches `ARK_LLAMACPP_SERVER_BIN` in your env file (generated default: `/opt/llama.cpp/llama-server`).
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- \
+  --role llm --llama-build --install-services --yes
+```
+
+Default paths:
+
+- Source: `/opt/ark-pi/vendor/llama.cpp`
+- Binary: `/opt/ark-pi/vendor/llama.cpp/build/bin/llama-server` (`ARK_LLAMA_BIN` in `ark-llm.env`)
+
+You can still build manually under another path; ensure `ARK_LLAMA_BIN` in your env file matches.
 
 ### 3. Place a GGUF model
 
-Copy a GGUF model to the configured path (generated default: `/srv/ark-pi/models/model.gguf`). Models stay out of git.
+Copy a GGUF model to the configured path (generated default: `/srv/ark-pi/models/model.gguf`). Models stay out of git. The installer does **not** download models.
+
+If you install services before the model exists, `ark-llm.service` is enabled but not started. After placing the file:
+
+```bash
+sudo systemctl start ark-llm.service
+sudo systemctl status ark-llm.service --no-pager
+```
 
 ### 4. Run the server manually first
 
 Load variables from your adapted `ark-llm.env`, then start the server in the foreground:
 
 ```bash
-# Flags vary by llama.cpp build; check --help on your binary
-$ARK_LLAMACPP_SERVER_BIN \
+# Check --help on your binary; flag names can drift between llama.cpp versions
+$ARK_LLAMA_BIN \
   --host 0.0.0.0 \
   --port 8080 \
   --model /srv/ark-pi/models/model.gguf \
   --ctx-size 4096 \
   --threads 4
 ```
-
-Check your binary's `--help`. Flag names change between llama.cpp versions.
 
 **Do not enable systemd on ark-llm until manual foreground run works.**
 
@@ -319,24 +334,22 @@ sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bi
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag'
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
 /opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
-```
-
-Bare `ark preflight` without loading `/etc/ark-pi/ark-rag.env` uses default config paths, not the service environment.
-
-When ark-llm is configured:
-
-```bash
-ark llm test --llm-backend openai-compatible --llm-base-url http://ark-llm.local:8080
-```
-
-HTTP examples (need DNS or `/etc/hosts`):
-
-```bash
 curl http://ark-rag.local:8000/healthz
 curl http://ark-rag.local:8000/api/status
 ```
 
-On **ark-llm**, confirm the inference server responds on its configured port using your llama.cpp server's health or models endpoint (consult upstream docs).
+Bare `ark preflight` without loading `/etc/ark-pi/ark-rag.env` uses default config paths, not the service environment.
+
+Run on **ark-llm** (installed env is `/etc/ark-pi/ark-llm.env`):
+
+```bash
+sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo systemctl status ark-llm.service --no-pager
+ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/models/model.gguf
+```
+
+When ark-llm responds (from ark-rag):
 
 ## Troubleshooting
 
@@ -344,7 +357,7 @@ On **ark-llm**, confirm the inference server responds on its configured port usi
 |---------|-----------------|
 | ark-rag web UI not reachable | `ark serve` binding (`ARK_HOST`, `--host`); firewall; WiFi/Ethernet not configured yet |
 | `ark llm status` looks fine but active test fails | Wrong `ARK_LLM_BASE_URL`; ark-llm not running; firewall between Pis; DNS for `ark-llm.local` |
-| Model path missing on ark-llm | GGUF file at `ARK_LLAMACPP_MODEL_PATH`; permissions; disk mount at `/srv/ark-pi/models` |
+| Model path missing on ark-llm | GGUF file at `ARK_MODEL_PATH` (default `/srv/ark-pi/models/model.gguf`); permissions; disk mount at `/srv/ark-pi/models` |
 | Deployment preflight warnings on laptop | Normal. `/opt/ark-pi` and model paths won't exist until install |
 | Workspace/source dirs missing | Run `ark init --sample` or create paths manually; check `ARK_WORKSPACE_DIR` and `ARK_SOURCE_DIR` |
 | Wrong hostname or DNS | Use fixed IPs in `ARK_LLM_BASE_URL` temporarily; add `/etc/hosts` entries on ark-rag |

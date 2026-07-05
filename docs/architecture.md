@@ -105,12 +105,10 @@ The default LLM backend is `mock` (`ARK_LLM_BACKEND=mock`). It validates retriev
 
 The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides deterministic lexical search for offline laptop development and tests. The optional `chroma` backend lazy-loads `chromadb` when selected. Install with `pip install -e '.[chroma]'` if you want it. Semantic embedding model selection is a future slice. See the root README for details.
 
-## Two-Pi deployment (future)
+## Two-Pi deployment
 
-**ark-rag**: web UI, API, workspace, ingest, indexing, prompts, LLM client. **ark-llm**: llama.cpp server.
+**ark-rag**: web UI, API, workspace, ingest, indexing, prompts, OpenAI-compatible LLM client (talks to ark-llm over HTTP). **ark-llm**: `llama-server` from llama.cpp, OpenAI-compatible HTTP API on port 8080.
 
-`ark deploy *` commands only build/review artifacts. They don't install units or configure the network. See [README](../README.md#deployment-artifacts) and [two-pi-manual.md](deployment/two-pi-manual.md).
+`ark deploy *` commands build/review artifacts only. [install.sh](../install.sh) bootstraps the app, renders templates, validates, optionally installs systemd units, and can build llama.cpp with `--llama-build`. GGUF model placement and network/WiFi remain manual. See [two-pi-manual.md](deployment/two-pi-manual.md) and [installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-Future one-line bootstrap: [install.sh](../install.sh) installs apt-based OS prerequisites on Debian-family hosts (first observed on Raspberry Pi 5 / Debian 13 trixie), prepares default `/opt/ark-pi` and `/srv/ark-pi` ownership with sudo when needed, bootstraps the app unprivileged, renders templates, runs env-aware validation (loads role env before `ark preflight` / `ark llm status`), and can install service files with `--install-services`. llama.cpp/models/network still manual. Spec: [installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
-
-Systemd, WiFi AP, Ethernet, llama.cpp build, and model placement are still manual/TODO.
+WiFi AP and Ethernet routing are still manual/TODO.

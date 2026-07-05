@@ -12,6 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
 FAKE_BIN = REPO_ROOT / "tests" / "fixtures" / "install_helpers"
 
+EXPECTED_LLM_APT_PACKAGES = ("cmake", "libcurl4-openssl-dev", "ccache")
+LLAMA_STUB = REPO_ROOT / "tests" / "fixtures" / "llama.cpp_stub"
 EXPECTED_APT_PACKAGES = (
     "ca-certificates",
     "curl",
@@ -89,7 +91,8 @@ def test_help_exits_zero_and_prints_usage() -> None:
     assert "--no-os-packages" in result.stdout
     assert "--validate-only" in result.stdout
     assert "--no-validate" in result.stdout
-    assert "systemd" in result.stdout.lower() or "service" in result.stdout.lower()
+    assert "--llama-build" in result.stdout
+    assert "--require-model" in result.stdout
 
 
 @pytest.mark.parametrize("role", ["rag", "llm", "both"])
@@ -1006,7 +1009,7 @@ def test_validate_only_happy_path_llm_warns_missing_gguf(tmp_path: Path) -> None
     assert install.returncode == 0, install.stderr
     result = _validate_only(tmp_path, "llm", prefix=prefix, data_dir=data_dir, generated=generated)
     assert result.returncode == 0, result.stderr
-    assert "[warning] llm_model_file" in result.stdout
+    assert "[warning] model_file" in result.stdout
     assert "Validation: PASS (with warnings)" in result.stdout
 
 
@@ -1449,6 +1452,13 @@ RAG_GENERATED_ENV = (
     "ARK_WORKSPACE_DIR=/generated/rag/workspace\n"
 )
 LLM_SERVICE_ENV = "ARK_ROLE=llm\nARK_MODEL_PATH=/service/llm/model.gguf\n"
+LEGACY_LLM_SERVICE_ENV = (
+    "ARK_ROLE=llm\n"
+    "ARK_LLM_HOST=0.0.0.0\n"
+    "ARK_LLM_PORT=8080\n"
+    "ARK_LLAMACPP_SERVER_BIN=/opt/llama.cpp/llama-server\n"
+    "ARK_LLAMACPP_MODEL_PATH=/srv/ark-pi/models/model.gguf\n"
+)
 LLM_GENERATED_ENV = "ARK_ROLE=llm\nARK_MODEL_PATH=/generated/llm/model.gguf\n"
 
 
@@ -1970,3 +1980,472 @@ def test_dry_run_does_not_run_env_aware_validation_commands(tmp_path: Path) -> N
     )
     assert result.returncode == 0, result.stderr
     assert read_command_log(command_log) == ""
+
+
+def _llama_install_env(
+    tmp_path: Path,
+    prefix: Path,
+    *,
+    command_log: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    env = fake_helper_env(
+        REPO_ROOT,
+        extra={
+            "ARK_INSTALL_LOCAL_LLAMA_REPO": str(LLAMA_STUB),
+            "ARK_PI_INSTALL_LLAMA_BIN": str(llama_bin),
+            **(extra_env or {}),
+        },
+        command_log=command_log,
+    )
+    return env
+
+
+def _run_llm_install_with_command_log(
+    tmp_path: Path,
+    *,
+    llama_build: bool = False,
+    install_services: bool = False,
+    service_root: Path | None = None,
+    require_model: bool = False,
+    extra_env: dict[str, str] | None = None,
+    extra_args: list[str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path, str]:
+    command_log = tmp_path / "commands.log"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = _llama_install_env(tmp_path, prefix, command_log=command_log, extra_env=extra_env)
+    args = [
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+    ]
+    if llama_build:
+        args.append("--llama-build")
+    if require_model:
+        args.append("--require-model")
+    if install_services:
+        args.extend(
+            [
+                "--service-root",
+                str(service_root or tmp_path / "service-root"),
+                "--install-services",
+            ]
+        )
+    if extra_args:
+        args.extend(extra_args)
+    result = run_install(*args, env=env)
+    return result, command_log, read_command_log(command_log)
+
+
+def test_llm_dry_run_without_llama_build_omits_llama_apt_packages() -> None:
+    result = run_install("--role", "llm", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    for package in EXPECTED_LLM_APT_PACKAGES:
+        assert package not in result.stdout
+
+
+def test_llm_dry_run_with_llama_build_lists_llama_apt_packages() -> None:
+    result = run_install("--role", "llm", "--llama-build", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    for package in EXPECTED_LLM_APT_PACKAGES:
+        assert package in result.stdout
+    assert "cmake -B" in result.stdout
+
+
+def test_llm_dry_run_llama_build_creates_nothing(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    command_log = tmp_path / "commands.log"
+    env = _llama_install_env(tmp_path, prefix, command_log=command_log)
+    result = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--dry-run",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "llama.cpp build steps:" in result.stdout
+    assert not prefix.exists()
+    assert not data_dir.exists()
+    assert read_command_log(command_log) == ""
+
+
+def test_rag_llama_build_fails_clearly() -> None:
+    result = run_install("--role", "rag", "--llama-build", "--dry-run")
+    assert result.returncode != 0
+    assert "--llama-build requires role llm or both" in result.stderr
+
+
+def test_llm_llama_build_creates_fake_llama_server_binary(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    result, _, log = _run_llm_install_with_command_log(tmp_path, llama_build=True)
+    assert result.returncode == 0, result.stderr
+    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    assert llama_bin.is_file()
+    assert llama_bin.stat().st_mode & 0o111
+    assert "git clone" in log
+    assert "cmake -B" in log
+    assert "cmake --build" in log
+    data_dir = tmp_path / "data"
+    env_content = data_dir / "deploy" / "generated" / "ark-llm.env"
+    assert env_content.is_file()
+    assert "ARK_LLAMA_BIN=" in env_content.read_text(encoding="utf-8")
+
+
+def test_both_llama_build_renders_all_templates_and_binary(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = _llama_install_env(tmp_path, prefix)
+    result = run_install(
+        "--role",
+        "both",
+        "--llama-build",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    for name in (
+        "ark-rag.env",
+        "ark-rag.service",
+        "ark-llm.env",
+        "ark-llm.service",
+    ):
+        assert (generated / name).is_file()
+    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    assert llama_bin.is_file()
+
+
+def test_llm_custom_paths_reflected_in_generated_templates(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    custom_model = data_dir / "custom" / "weights.gguf"
+    env = _llama_install_env(tmp_path, prefix)
+    result = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--llama-bin",
+        str(prefix / "bin" / "llama-server"),
+        "--model-dir",
+        str(custom_model.parent),
+        "--model-path",
+        str(custom_model),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    env_text = (generated / "ark-llm.env").read_text(encoding="utf-8")
+    service_text = (generated / "ark-llm.service").read_text(encoding="utf-8")
+    assert f"ARK_LLAMA_BIN={prefix / 'bin' / 'llama-server'}" in env_text
+    assert f"ARK_MODEL_PATH={custom_model}" in env_text
+    assert "ARK_LLAMA_BIN" in service_text
+
+
+def test_validate_only_llama_build_does_not_run_git_or_cmake(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    command_log = tmp_path / "commands.log"
+    env = _llama_install_env(tmp_path, prefix, command_log=command_log)
+    install = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    command_log.write_text("", encoding="utf-8")
+    result = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "git clone" not in log
+    assert "cmake" not in log
+
+
+def test_require_model_missing_fails_validation(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--require-model",
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "[fail] model_file" in result.stdout
+
+
+def _run_llm_system_root_service_install(
+    tmp_path: Path,
+    *,
+    llama_build: bool = False,
+    require_model: bool = False,
+    no_start: bool = False,
+    systemctl_inactive: bool = False,
+    command_log: Path | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path, str]:
+    log_path = command_log or tmp_path / "commands.log"
+    prefix = tmp_path / "system-root" / "opt" / "ark-pi"
+    extra_env: dict[str, str] = {
+        "ARK_INSTALL_LOCAL_LLAMA_REPO": str(LLAMA_STUB),
+        "ARK_PI_INSTALL_LLAMA_BIN": str(
+            prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+        ),
+    }
+    if systemctl_inactive:
+        extra_env["ARK_PI_INSTALL_SYSTEMCTL_INACTIVE"] = "1"
+    env, _system_root = fake_system_root_env(
+        tmp_path,
+        REPO_ROOT,
+        command_log=log_path,
+        extra=extra_env,
+    )
+    args = [
+        "--role",
+        "llm",
+        "--no-os-packages",
+        "--install-services",
+        "--yes",
+        "--repo",
+        "file://fake",
+    ]
+    if llama_build:
+        args.append("--llama-build")
+    if require_model:
+        args.append("--require-model")
+    if no_start:
+        args.append("--no-start")
+    result = run_install(*args, env=env)
+    return result, log_path, read_command_log(log_path)
+
+
+def test_llm_service_install_missing_model_skips_systemctl_start(tmp_path: Path) -> None:
+    result, _, log = _run_llm_system_root_service_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "systemctl enable ark-llm.service" in log
+    assert "systemctl start ark-llm.service" not in log
+    assert "Skipping systemctl start for ark-llm.service" in result.stdout
+
+
+def test_llm_service_install_require_model_missing_fails_before_start(tmp_path: Path) -> None:
+    result, _, log = _run_llm_system_root_service_install(tmp_path, require_model=True)
+    assert result.returncode != 0
+    assert "model file required" in result.stderr.lower()
+    assert "systemctl start ark-llm.service" not in log
+
+
+def test_env_allowlist_accepts_ark_llama_bin(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[pass] llm_preflight" in result.stdout
+    assert "role_env_unknown_keys" not in result.stdout
+
+
+def test_llm_post_install_output_uses_llm_env_not_rag(tmp_path: Path) -> None:
+    result, _, _ = _run_llm_install_with_command_log(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "One-liner example (llm):" in result.stdout
+    assert "One-liner example (rag):" not in result.stdout
+    assert "ark-llm.env" in result.stdout
+    assert "Role env (llm):" in result.stdout
+
+
+def test_llm_post_install_output_omits_rag_curl_checks(tmp_path: Path) -> None:
+    result, _, _ = _run_llm_install_with_command_log(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "curl http://127.0.0.1:8000/healthz" not in result.stdout
+    assert "curl http://127.0.0.1:8000/api/status" not in result.stdout
+    assert "LLM service checks:" in result.stdout
+    assert "systemctl status ark-llm.service" in result.stdout
+
+
+def test_both_post_install_output_includes_rag_and_llm_hints(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    env = _llama_install_env(tmp_path, prefix)
+    result = run_install(
+        "--role",
+        "both",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "One-liner example (rag):" in result.stdout
+    assert "One-liner example (llm):" in result.stdout
+    assert "RAG API checks:" in result.stdout
+    assert "curl http://127.0.0.1:8000/healthz" in result.stdout
+    assert "LLM service checks:" in result.stdout
+    assert "systemctl status ark-llm.service" in result.stdout
+
+
+def test_llm_no_start_missing_model_passes_with_warnings(tmp_path: Path) -> None:
+    result, _, log = _run_llm_system_root_service_install(
+        tmp_path,
+        no_start=True,
+        systemctl_inactive=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Validation: PASS (with warnings)" in result.stdout
+    assert "[warning] model_file" in result.stdout
+    assert "[pass] systemctl_enabled" in result.stdout
+    assert "not active (--no-start; expected)" in result.stdout
+    assert "systemctl start ark-llm.service" not in log
+
+
+def test_legacy_llamacpp_env_accepted_by_validation(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--service-root",
+        str(service_root),
+        "--install-services",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    _write_env(service_root / "etc" / "ark-pi" / "ark-llm.env", LEGACY_LLM_SERVICE_ENV)
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--service-root",
+        str(service_root),
+        "--install-services",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[pass] llm_preflight" in result.stdout
+    assert "role_env_unknown_keys" not in result.stdout

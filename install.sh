@@ -3,7 +3,7 @@
 # Ark Pi install bootstrap (v5).
 # App bootstrap, deploy render, optional service install, apt OS prerequisites,
 # post-install validation and --validate-only mode.
-# Does not install llama.cpp or models.
+# Optional llama.cpp build via --llama-build; does not download models.
 #
 
 set -u
@@ -29,13 +29,27 @@ NO_VALIDATE=0
 VALIDATION_FAILED=0
 VALIDATION_WARNED=0
 
+LLAMA_BUILD=0
+NO_LLAMA_BUILD=0
+LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
+LLAMA_REF="master"
+LLAMA_DIR=""
+LLAMA_BUILD_DIR=""
+LLAMA_BIN=""
+MODEL_DIR=""
+MODEL_PATH=""
+REQUIRE_MODEL=0
+BUILD_JOBS=0
+
 INSTALL_OWNER=""
 INSTALL_GROUP=""
 
 OS=""
 ARCH=""
 
-APT_PACKAGES="ca-certificates curl git python3 python3-venv python3-pip python3-dev build-essential pkg-config rsync unzip jq"
+APT_BASELINE_PACKAGES="ca-certificates curl git python3 python3-venv python3-pip python3-dev build-essential pkg-config rsync unzip jq"
+LLAMA_APT_PACKAGES="cmake libcurl4-openssl-dev ccache"
+APT_PACKAGES="$APT_BASELINE_PACKAGES"
 
 usage() {
   cat <<'EOF'
@@ -45,8 +59,9 @@ Bootstraps the Ark Pi app: clone/update repo, Python venv, pip install -e,
 role-specific data directories, deployment template render, and optional
 env/systemd file install.
 
-Does not install llama.cpp or download models. On Debian-family hosts,
-can install RAG Pi apt prerequisites (git, python3, python3-venv, python3-pip, build tools, etc.).
+Does not download GGUF models. Optional llama.cpp source build with --llama-build.
+On Debian-family hosts, can install apt prerequisites (git, python3, build tools, etc.).
+Llama build apt extras (cmake, libcurl4-openssl-dev, ccache) install only with --llama-build.
 
 Usage:
   sh install.sh [options]
@@ -68,10 +83,23 @@ Options:
   --no-start                Skip systemctl start (when installing to /)
   --validate-only           Validate an existing install; no mutations
   --no-validate             Skip post-install validation after real install
+  --llama-build             Clone and build llama.cpp (role llm or both only)
+  --no-llama-build          Explicitly skip llama.cpp build
+  --llama-repo URL          llama.cpp git repository
+  --llama-ref REF           llama.cpp git ref (default: master)
+  --llama-dir PATH          llama.cpp source dir (default: $PREFIX/vendor/llama.cpp)
+  --llama-build-dir PATH    llama.cpp cmake build dir (default: $LLAMA_DIR/build)
+  --llama-bin PATH          llama-server binary path (default: $LLAMA_BUILD_DIR/bin/llama-server)
+  --model-dir PATH          Model directory (default: $DATA_DIR/models)
+  --model-path PATH         GGUF model path (default: $MODEL_DIR/model.gguf)
+  --require-model           Treat missing model file as validation failure
+  --build-jobs N            Parallel cmake build jobs (default: CPU count or 2)
   --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
+  sh install.sh --role llm --llama-build --dry-run
+  sh install.sh --role llm --install-services --llama-build --yes
   sh install.sh --role rag --no-os-packages --dry-run
   sh install.sh --role rag --install-services --dry-run
   sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
@@ -153,6 +181,106 @@ parse_args() {
       --no-validate)
         NO_VALIDATE=1
         shift
+        ;;
+      --llama-build)
+        LLAMA_BUILD=1
+        shift
+        ;;
+      --no-llama-build)
+        NO_LLAMA_BUILD=1
+        shift
+        ;;
+      --require-model)
+        REQUIRE_MODEL=1
+        shift
+        ;;
+      --llama-repo=*)
+        LLAMA_REPO="${1#*=}"
+        shift
+        ;;
+      --llama-repo)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llama-repo"
+        fi
+        LLAMA_REPO="$2"
+        shift 2
+        ;;
+      --llama-ref=*)
+        LLAMA_REF="${1#*=}"
+        shift
+        ;;
+      --llama-ref)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llama-ref"
+        fi
+        LLAMA_REF="$2"
+        shift 2
+        ;;
+      --llama-dir=*)
+        LLAMA_DIR="${1#*=}"
+        shift
+        ;;
+      --llama-dir)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llama-dir"
+        fi
+        LLAMA_DIR="$2"
+        shift 2
+        ;;
+      --llama-build-dir=*)
+        LLAMA_BUILD_DIR="${1#*=}"
+        shift
+        ;;
+      --llama-build-dir)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llama-build-dir"
+        fi
+        LLAMA_BUILD_DIR="$2"
+        shift 2
+        ;;
+      --llama-bin=*)
+        LLAMA_BIN="${1#*=}"
+        shift
+        ;;
+      --llama-bin)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llama-bin"
+        fi
+        LLAMA_BIN="$2"
+        shift 2
+        ;;
+      --model-dir=*)
+        MODEL_DIR="${1#*=}"
+        shift
+        ;;
+      --model-dir)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-dir"
+        fi
+        MODEL_DIR="$2"
+        shift 2
+        ;;
+      --model-path=*)
+        MODEL_PATH="${1#*=}"
+        shift
+        ;;
+      --model-path)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-path"
+        fi
+        MODEL_PATH="$2"
+        shift 2
+        ;;
+      --build-jobs=*)
+        BUILD_JOBS="${1#*=}"
+        shift
+        ;;
+      --build-jobs)
+        if [ $# -lt 2 ]; then
+          die "missing value for --build-jobs"
+        fi
+        BUILD_JOBS="$2"
+        shift 2
         ;;
       --no-os-packages)
         NO_OS_PACKAGES=1
@@ -266,6 +394,94 @@ set_generated_dir_default() {
   if [ -z "$GENERATED_DIR" ]; then
     GENERATED_DIR="$DATA_DIR/deploy/generated"
   fi
+}
+
+resolve_llama_paths() {
+  if [ -z "$MODEL_DIR" ]; then
+    MODEL_DIR="$DATA_DIR/models"
+  fi
+  if [ -z "$MODEL_PATH" ]; then
+    MODEL_PATH="$MODEL_DIR/model.gguf"
+  fi
+  if [ -z "$LLAMA_DIR" ]; then
+    LLAMA_DIR="$PREFIX/vendor/llama.cpp"
+  fi
+  if [ -z "$LLAMA_BUILD_DIR" ]; then
+    LLAMA_BUILD_DIR="$LLAMA_DIR/build"
+  fi
+  if [ -z "$LLAMA_BIN" ]; then
+    LLAMA_BIN="$LLAMA_BUILD_DIR/bin/llama-server"
+  fi
+}
+
+should_build_llama() {
+  if [ "$NO_LLAMA_BUILD" -eq 1 ]; then
+    return 1
+  fi
+  if [ "$LLAMA_BUILD" -ne 1 ]; then
+    return 1
+  fi
+  case "$ROLE" in
+    llm|both) return 0 ;;
+  esac
+  return 1
+}
+
+should_include_llama_apt_packages() {
+  should_build_llama
+}
+
+should_expect_llama_binary() {
+  if should_build_llama; then
+    return 0
+  fi
+  _dir=$(map_install_path "$LLAMA_DIR")
+  if [ -d "$_dir/.git" ] || [ -f "$_dir/CMakeLists.txt" ]; then
+    return 0
+  fi
+  return 1
+}
+
+validate_llama_flags() {
+  if [ "$LLAMA_BUILD" -eq 1 ] && [ "$ROLE" = "rag" ]; then
+    die "--llama-build requires role llm or both (not rag)"
+  fi
+  if [ "$LLAMA_BUILD" -eq 1 ] && [ "$NO_LLAMA_BUILD" -eq 1 ]; then
+    die "cannot use --llama-build with --no-llama-build"
+  fi
+}
+
+apt_packages_list() {
+  _list="$APT_BASELINE_PACKAGES"
+  if should_include_llama_apt_packages; then
+    _list="$_list $LLAMA_APT_PACKAGES"
+  fi
+  echo "$_list"
+}
+
+resolve_build_jobs() {
+  if [ "$BUILD_JOBS" -gt 0 ] 2>/dev/null; then
+    return 0
+  fi
+  if command_exists nproc; then
+    BUILD_JOBS=$(nproc)
+    return 0
+  fi
+  BUILD_JOBS=2
+}
+
+model_path_exists() {
+  [ -f "$(map_install_path "$MODEL_PATH")" ]
+}
+
+should_start_llm_service() {
+  model_path_exists
+}
+
+print_llm_start_deferred_message() {
+  echo ""
+  echo "Skipping systemctl start for ark-llm.service (model file missing)."
+  echo "Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
 }
 
 normalize_role_choice() {
@@ -630,11 +846,11 @@ resolve_package_manager() {
 }
 
 manual_package_guidance() {
-  echo "Install these packages manually: $APT_PACKAGES" >&2
+  echo "Install these packages manually: $(apt_packages_list)" >&2
 }
 
 apt_install_command() {
-  echo "apt-get install -y $APT_PACKAGES"
+  echo "apt-get install -y $(apt_packages_list)"
 }
 
 print_os_prerequisite_steps() {
@@ -647,7 +863,7 @@ print_os_prerequisite_steps() {
       echo "  Run sudo apt-get update"
       echo "  Run sudo $(apt_install_command)"
     fi
-    echo "  Packages: $APT_PACKAGES"
+    echo "  Packages: $(apt_packages_list)"
   else
     echo "  Skip apt package install (--no-os-packages or --package-manager none)"
     echo "  Verify commands exist: git python3 curl"
@@ -663,7 +879,7 @@ install_os_prerequisites() {
     die "apt-get update failed"
   fi
   # shellcheck disable=SC2086
-  if ! run_as_root apt-get install -y $APT_PACKAGES; then
+  if ! run_as_root apt-get install -y $(apt_packages_list); then
     die "apt-get install failed"
   fi
 }
@@ -836,6 +1052,16 @@ print_common_summary() {
   else
     echo "Post-install validate: yes"
   fi
+  case "$ROLE" in
+    llm|both)
+      echo "Llama build:           $([ "$LLAMA_BUILD" -eq 1 ] && [ "$NO_LLAMA_BUILD" -eq 0 ] && echo yes || echo no)"
+      echo "Llama dir:             $LLAMA_DIR"
+      echo "Llama binary:          $LLAMA_BIN"
+      echo "Model dir:             $MODEL_DIR"
+      echo "Model path:            $MODEL_PATH"
+      echo "Require model:         $([ "$REQUIRE_MODEL" -eq 1 ] && echo yes || echo no)"
+      ;;
+  esac
   echo ""
 }
 
@@ -846,19 +1072,38 @@ data_dirs_for_role() {
       echo "$DATA_DIR/data/sources"
       ;;
     llm)
-      echo "$DATA_DIR/models"
+      echo "$MODEL_DIR"
       ;;
     both)
       echo "$DATA_DIR/data/workspace"
       echo "$DATA_DIR/data/sources"
-      echo "$DATA_DIR/models"
+      echo "$MODEL_DIR"
       ;;
   esac
 }
 
 render_deploy_command() {
   _deploy_role=$(deploy_role_for_install_role)
-  echo "$PREFIX/.venv/bin/ark deploy render --output-dir $GENERATED_DIR --role $_deploy_role --force"
+  _cmd="$PREFIX/.venv/bin/ark deploy render --output-dir $GENERATED_DIR --role $_deploy_role --force"
+  case "$ROLE" in
+    llm|both)
+      _cmd="$_cmd --prefix $PREFIX --llama-bin $LLAMA_BIN --model-dir $MODEL_DIR --model-path $MODEL_PATH"
+      ;;
+  esac
+  echo "$_cmd"
+}
+
+print_llama_build_steps() {
+  if ! should_build_llama; then
+    return 0
+  fi
+  echo ""
+  echo "llama.cpp build steps:"
+  echo "  Clone or update llama.cpp at $LLAMA_DIR from $LLAMA_REPO (ref $LLAMA_REF)"
+  echo "  Run cmake -B $LLAMA_BUILD_DIR -DCMAKE_BUILD_TYPE=Release"
+  resolve_build_jobs
+  echo "  Run cmake --build $LLAMA_BUILD_DIR --config Release -j $BUILD_JOBS"
+  echo "  Verify $LLAMA_BIN exists and is executable"
 }
 
 print_app_bootstrap_steps() {
@@ -871,6 +1116,7 @@ print_app_bootstrap_steps() {
     echo "       $_dir"
   done
   echo "  5. Verify $PREFIX/.venv/bin/ark --help"
+  print_llama_build_steps
   echo "  6. Run $(render_deploy_command)"
 }
 
@@ -897,7 +1143,12 @@ print_service_install_steps() {
     fi
     if [ "$NO_START" -eq 0 ]; then
       for _unit in $(service_unit_names_for_role); do
-        echo "  systemctl start $_unit"
+        if [ "$_unit" = "ark-llm.service" ] && ! model_path_exists; then
+          echo "  Skip systemctl start $_unit (model file missing at $MODEL_PATH)"
+          echo "  Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
+        else
+          echo "  systemctl start $_unit"
+        fi
       done
     fi
   else
@@ -908,7 +1159,14 @@ print_service_install_steps() {
 print_future_service_steps() {
   echo ""
   echo "Not automated by install.sh:"
-  echo "  - Install llama.cpp or download GGUF models"
+  if ! should_build_llama; then
+    case "$ROLE" in
+      llm|both)
+        echo "  - Build llama.cpp (use --llama-build to opt in)"
+        ;;
+    esac
+  fi
+  echo "  - Download or place GGUF model files"
   echo "  - Configure WiFi AP or network"
   if [ "$INSTALL_SERVICES" -eq 0 ]; then
     echo "  - Install env/systemd files (use --install-services to opt in)"
@@ -1030,9 +1288,12 @@ require_confirmation_for_mutation() {
     echo "  Install services: no"
   fi
   if [ "$PKG_INSTALL_ENABLED" -eq 1 ]; then
-    echo "  OS packages:    install via apt ($APT_PACKAGES)"
+    echo "  OS packages:    install via apt ($(apt_packages_list))"
   else
     echo "  OS packages:    skip (check only)"
+  fi
+  if should_build_llama; then
+    echo "  Llama build:    yes ($LLAMA_DIR -> $LLAMA_BIN)"
   fi
   echo ""
   printf "Proceed? [y/N]: "
@@ -1065,6 +1326,43 @@ clone_or_update_repo() {
   git clone --branch "$BRANCH" "$REPO" "$_pref"
 }
 
+clone_or_update_llama_repo() {
+  _dir=$(map_install_path "$LLAMA_DIR")
+  if [ ! -d "$_dir" ]; then
+    _parent=$(path_dirname "$_dir")
+    mkdir -p "$_parent"
+    git clone "$LLAMA_REPO" "$_dir"
+  fi
+  if [ -d "$_dir/.git" ]; then
+    git -C "$_dir" fetch origin "$LLAMA_REF" 2>/dev/null || git -C "$_dir" fetch origin 2>/dev/null || true
+    git -C "$_dir" checkout "$LLAMA_REF"
+    return 0
+  fi
+  die "llama.cpp path exists but is not a git checkout: $LLAMA_DIR"
+}
+
+build_llama_cpp() {
+  if ! should_build_llama; then
+    return 0
+  fi
+  if ! command_exists cmake; then
+    die "cmake not found (required for --llama-build)"
+  fi
+  clone_or_update_llama_repo
+  _build_dir=$(map_install_path "$LLAMA_BUILD_DIR")
+  _bin=$(map_install_path "$LLAMA_BIN")
+  if ! cmake -B "$_build_dir" -DCMAKE_BUILD_TYPE=Release; then
+    die "cmake configure failed for llama.cpp"
+  fi
+  resolve_build_jobs
+  if ! cmake --build "$_build_dir" --config Release -j "$BUILD_JOBS"; then
+    die "cmake build failed for llama.cpp"
+  fi
+  if [ ! -x "$_bin" ]; then
+    die "llama-server binary missing or not executable: $LLAMA_BIN"
+  fi
+}
+
 create_venv_and_install() {
   _pref=$(map_install_path "$PREFIX")
   _venv="$_pref/.venv"
@@ -1090,9 +1388,22 @@ run_deploy_render() {
     die "ark CLI missing at $_ark"
   fi
   mkdir -p "$_generated"
-  if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force; then
-    die "ark deploy render failed"
-  fi
+  case "$ROLE" in
+    llm|both)
+      if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force \
+        --prefix "$PREFIX" \
+        --llama-bin "$LLAMA_BIN" \
+        --model-dir "$MODEL_DIR" \
+        --model-path "$MODEL_PATH"; then
+        die "ark deploy render failed"
+      fi
+      ;;
+    *)
+      if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force; then
+        die "ark deploy render failed"
+      fi
+      ;;
+  esac
 }
 
 validate_generated_service_files() {
@@ -1154,6 +1465,10 @@ run_systemctl_actions() {
   fi
   if [ "$NO_START" -eq 0 ]; then
     for _unit in $(service_unit_names_for_role); do
+      if [ "$_unit" = "ark-llm.service" ] && ! should_start_llm_service; then
+        print_llm_start_deferred_message
+        continue
+      fi
       run_systemctl start "$_unit"
     done
   fi
@@ -1359,6 +1674,7 @@ export_allowed_ark_env_pair() {
     ARK_MODEL_PATH) ARK_MODEL_PATH="$_value"; export ARK_MODEL_PATH ;;
     ARK_CONTEXT_SIZE) ARK_CONTEXT_SIZE="$_value"; export ARK_CONTEXT_SIZE ;;
     ARK_THREADS) ARK_THREADS="$_value"; export ARK_THREADS ;;
+    ARK_LLAMA_BIN) ARK_LLAMA_BIN="$_value"; export ARK_LLAMA_BIN ;;
     ARK_LLM_HOST) ARK_LLM_HOST="$_value"; export ARK_LLM_HOST ;;
     ARK_LLM_PORT) ARK_LLM_PORT="$_value"; export ARK_LLM_PORT ;;
     ARK_LLAMACPP_SERVER_BIN) ARK_LLAMACPP_SERVER_BIN="$_value"; export ARK_LLAMACPP_SERVER_BIN ;;
@@ -1521,6 +1837,8 @@ check_systemctl_unit_state() {
   fi
   if systemctl is-active "$_unit" >/dev/null 2>&1; then
     record_validation_check systemctl_active pass "$_unit is active"
+  elif [ "$NO_START" -eq 1 ] && [ "$_unit" = "ark-llm.service" ]; then
+    record_validation_check systemctl_active pass "$_unit is not active (--no-start; expected)"
   else
     record_validation_check systemctl_active warning "$_unit is not active"
   fi
@@ -1617,16 +1935,40 @@ run_validation_checks() {
 
   case "$ROLE" in
     llm|both)
-      if [ -d "$_data/models" ]; then
-        record_validation_check llm_model_dir pass "LLM model dir exists"
+      _model_dir=$(map_install_path "$MODEL_DIR")
+      if [ -d "$_model_dir" ]; then
+        record_validation_check model_dir pass "model dir exists: $MODEL_DIR"
       else
-        record_validation_check llm_model_dir fail "LLM model dir missing: $DATA_DIR/models"
+        record_validation_check model_dir fail "model dir missing: $MODEL_DIR"
       fi
-      _gguf=$(find "$_data/models" -type f -name '*.gguf' 2>/dev/null | head -n 1)
-      if [ -n "$_gguf" ]; then
-        record_validation_check llm_model_file pass "GGUF model file found under $DATA_DIR/models"
+      if should_build_llama || [ -d "$(map_install_path "$LLAMA_DIR")" ]; then
+        _llama_dir=$(map_install_path "$LLAMA_DIR")
+        if [ -d "$_llama_dir" ]; then
+          record_validation_check llama_dir pass "llama.cpp source dir exists: $LLAMA_DIR"
+        else
+          record_validation_check llama_dir warning "llama.cpp source dir missing: $LLAMA_DIR"
+        fi
+      fi
+      _bin=$(map_install_path "$LLAMA_BIN")
+      if [ -x "$_bin" ]; then
+        record_validation_check llama_server_binary pass "llama-server binary exists: $LLAMA_BIN"
+        if "$_bin" --help >/dev/null 2>&1; then
+          record_validation_check llama_server_help pass "llama-server --help succeeded"
+        else
+          record_validation_check llama_server_help fail "llama-server --help failed: $LLAMA_BIN"
+        fi
+      elif should_expect_llama_binary; then
+        record_validation_check llama_server_binary fail "llama-server binary missing or not executable: $LLAMA_BIN"
       else
-        record_validation_check llm_model_file warning "no GGUF model file under $DATA_DIR/models (manual step)"
+        record_validation_check llama_server_binary warning "llama-server binary not present: $LLAMA_BIN (optional until --llama-build)"
+      fi
+      _model=$(map_install_path "$MODEL_PATH")
+      if [ -f "$_model" ]; then
+        record_validation_check model_file pass "model file exists: $MODEL_PATH"
+      elif [ "$REQUIRE_MODEL" -eq 1 ]; then
+        record_validation_check model_file fail "model file missing: $MODEL_PATH (--require-model)"
+      else
+        record_validation_check model_file warning "model file missing: $MODEL_PATH (manual step)"
       fi
       if [ -x "$_ark" ]; then
         if run_ark_with_role_env llm "$_ark" preflight; then
@@ -1705,9 +2047,13 @@ print_validation_plan_steps() {
   esac
   case "$ROLE" in
     llm|both)
-      echo "  Check LLM model dir, warn if no GGUF model file, and role-env-aware ark preflight"
+      echo "  Check model dir, llama-server binary (when expected), model file, and role-env-aware ark preflight"
+      echo "  Missing model file is a warning unless --require-model"
       ;;
   esac
+  if should_build_llama; then
+    echo "  Validate-only does not clone, fetch, build llama.cpp, or install apt packages"
+  fi
   if should_validate_services; then
     echo "  Check service env/unit files under service root: $SERVICE_ROOT"
     if [ "$SERVICE_ROOT" = "/" ]; then
@@ -1718,7 +2064,7 @@ print_validation_plan_steps() {
   else
     echo "  Skip service file checks (no --install-services and no files found)"
   fi
-  echo "  Does not install llama.cpp, download models, or configure networking"
+  echo "  Does not download models or configure networking"
   echo "  Verify role env file is readable before ark commands (role_env_read; sudo cat for /etc/ark-pi/*.env when service root is /)"
 }
 
@@ -1789,6 +2135,48 @@ print_role_validation_commands() {
   esac
 }
 
+print_role_one_liner_example() {
+  _role="$1"
+  _ark="$2"
+  _env_file=$(validation_env_display_path "$_role")
+  echo "One-liner example ($_role):"
+  if should_print_sudo_env_load "$_env_file"; then
+    print_sudo_env_ark_command "$_env_file" "$_ark preflight"
+  else
+    echo "  set -a; . $_env_file; set +a; $_ark preflight"
+  fi
+}
+
+print_rag_api_validation_commands() {
+  _ark="$1"
+  _deploy_role="$2"
+  echo ""
+  echo "RAG API checks:"
+  echo "  $_ark llm test --llm-backend mock"
+  echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"
+  echo "  $_ark deploy plan --generated-dir $GENERATED_DIR --role $_deploy_role"
+  echo "  curl http://127.0.0.1:8000/healthz"
+  echo "  curl http://127.0.0.1:8000/api/status"
+}
+
+print_llm_service_validation_commands() {
+  echo ""
+  echo "LLM service checks:"
+  if [ "$INSTALL_SERVICES" -eq 1 ] && [ "$SERVICE_ROOT" = "/" ]; then
+    echo "  sudo systemctl status ark-llm.service --no-pager"
+  else
+    echo "  systemctl status ark-llm.service --no-pager"
+  fi
+  echo "  ls -l $LLAMA_BIN"
+  echo "  ls -l $MODEL_PATH"
+  if ! model_path_exists; then
+    echo "  Place a GGUF at $MODEL_PATH before: sudo systemctl start ark-llm.service"
+  fi
+  if [ -x "$(map_install_path "$LLAMA_BIN")" ]; then
+    echo "  $LLAMA_BIN --help"
+  fi
+}
+
 print_validation_commands() {
   _deploy_role=$(deploy_role_for_install_role)
   _ark="$PREFIX/.venv/bin/ark"
@@ -1797,30 +2185,27 @@ print_validation_commands() {
   case "$ROLE" in
     rag)
       print_role_validation_commands rag "$_ark"
+      print_role_one_liner_example rag "$_ark"
+      print_rag_api_validation_commands "$_ark" "$_deploy_role"
       ;;
     llm)
       print_role_validation_commands llm "$_ark"
+      print_role_one_liner_example llm "$_ark"
+      echo ""
+      echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"
+      print_llm_service_validation_commands
       ;;
     both)
       print_role_validation_commands rag "$_ark"
       echo ""
       print_role_validation_commands llm "$_ark"
+      print_role_one_liner_example rag "$_ark"
+      echo ""
+      print_role_one_liner_example llm "$_ark"
+      print_rag_api_validation_commands "$_ark" "$_deploy_role"
+      print_llm_service_validation_commands
       ;;
   esac
-  echo ""
-  echo "One-liner example (rag):"
-  _rag_env=$(validation_env_display_path rag)
-  if should_print_sudo_env_load "$_rag_env"; then
-    print_sudo_env_ark_command "$_rag_env" "$_ark preflight"
-  else
-    echo "  set -a; . $_rag_env; set +a; $_ark preflight"
-  fi
-  echo ""
-  echo "  $_ark llm test --llm-backend mock"
-  echo "  $_ark deploy preflight --generated-dir $GENERATED_DIR --role $_deploy_role"
-  echo "  $_ark deploy plan --generated-dir $GENERATED_DIR --role $_deploy_role"
-  echo "  curl http://127.0.0.1:8000/healthz"
-  echo "  curl http://127.0.0.1:8000/api/status"
   echo ""
   if [ "$INSTALL_SERVICES" -eq 1 ]; then
     echo "Review installed env and systemd files under $SERVICE_ROOT before production use."
@@ -1831,7 +2216,8 @@ print_validation_commands() {
     echo "Review generated env and systemd files before installing services."
     echo "Use --install-services to install rendered files."
   fi
-  echo "llama.cpp, models, and network setup remain manual."
+  echo "Model placement remains manual; use --llama-build for optional llama.cpp source build."
+  echo "Network setup remains manual."
   echo "For full deployment, see docs/deployment/two-pi-manual.md"
 }
 
@@ -1877,9 +2263,19 @@ run_bootstrap() {
   ensure_clean_prefix
   clone_or_update_repo
   create_venv_and_install
+  build_llama_cpp
   create_data_dirs
   run_deploy_render
   install_service_files
+  if [ "$INSTALL_SERVICES" -eq 1 ]; then
+    case "$ROLE" in
+      llm|both)
+        if [ "$REQUIRE_MODEL" -eq 1 ] && ! model_path_exists; then
+          die "model file required at $MODEL_PATH (--require-model)"
+        fi
+        ;;
+    esac
+  fi
   run_systemctl_actions
   print_success_message
   if [ "$NO_VALIDATE" -eq 0 ]; then
@@ -1896,6 +2292,7 @@ run_bootstrap() {
 main() {
   parse_args "$@"
   set_generated_dir_default
+  resolve_llama_paths
   detect_platform
   if [ -z "$ROLE" ]; then
     if is_interactive; then
@@ -1905,6 +2302,8 @@ main() {
     fi
   fi
   validate_role
+  validate_llama_flags
+  resolve_llama_paths
   validate_generated_dir
   validate_service_root
   if [ "$VALIDATE_ONLY" -eq 0 ]; then

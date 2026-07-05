@@ -221,10 +221,10 @@ def _llm_manual_commands() -> list[PlanManualCommand]:
         PlanManualCommand(
             id="install_llama_cpp",
             role="llm",
-            command="# Install or build llama.cpp at /opt/llama.cpp before enabling ark-llm.",
+            command="sh install.sh --role llm --llama-build --install-services --yes",
             requires_sudo=False,
             performed=False,
-            message="Placeholder only. This slice does not install llama.cpp.",
+            message="Optional: build llama.cpp via install.sh --llama-build (does not download models).",
         ),
         PlanManualCommand(
             id="place_model",
