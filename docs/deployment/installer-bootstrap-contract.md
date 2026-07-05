@@ -157,7 +157,11 @@ For `ROLE=both`, rag checks use the rag env file; llm checks use the llm env fil
 
 Installer-executed validation parses env files without `eval` or `source`. Only allowlisted `ARK_*` keys are exported for CLI commands. Malformed non-comment lines fail validation before running `ark`. Unknown keys emit `[warning] role_env_unknown_keys` (ignored, non-fatal). Template keys such as `ARK_LLM_HOST` and `ARK_LLAMACPP_*` are allowlisted.
 
-Printed operator examples may use `set -a; . envfile; set +a` for readability.
+If the selected env file cannot be read, validation emits `[fail] role_env_read` and skips `ark preflight` / `ark llm status`. Permission errors are hard failures, not warnings.
+
+Installed service env files under `/etc/ark-pi/*.env` are `root:root` mode `0640`. When `--service-root` is `/`, validation may use read-only `sudo cat` to load the env file for parsing; sudo is not used for generated env files or redirected service roots.
+
+Printed operator examples for real `/etc/ark-pi/*.env` installs use `sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec ...'`. Generated env examples may use non-sudo `set -a; . envfile; set +a`.
 
 ### Modes
 
@@ -173,7 +177,7 @@ Common: prefix exists, `$PREFIX/.venv/bin/ark` executable, `ark --help`, data di
 
 Role-specific (role-env-aware):
 
-- **rag:** workspace/sources dirs; `ark preflight` and `ark llm status` with rag env loaded (warning if LLM offline).
+- **rag:** workspace/sources dirs; verify role env is readable (`role_env_read`); `ark preflight` and `ark llm status` with rag env loaded (warning if LLM offline).
 - **llm:** model dir (required); GGUF file under models (warning only); `ark preflight` with llm env loaded.
 
 Services (when `--install-services`, or service files exist under service root): env files under `$SERVICE_ROOT/etc/ark-pi`, unit files under `$SERVICE_ROOT/etc/systemd/system`. When service root is `/`, read-only `systemctl is-enabled` / `is-active` (warnings only).
@@ -239,21 +243,18 @@ Services (when `--install-services`, or service files exist under service root):
 
 ## Validation commands to print
 
-After install, the script should suggest loading the role env first (bare `ark preflight` is not service-equivalent):
+After install with `--install-services` and `--service-root /`, suggest loading the installed role env via sudo (env files are `root:root` mode `0640`; bare `ark preflight` is not service-equivalent):
 
 ```bash
-set -a
-. /etc/ark-pi/ark-rag.env
-set +a
-/opt/ark-pi/.venv/bin/ark preflight
-/opt/ark-pi/.venv/bin/ark llm status
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag'
 /opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
-/opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag
 curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/api/status
 ```
 
-For non-service installs, use `$GENERATED_DIR/ark-rag.env` instead of `/etc/ark-pi/ark-rag.env`.
+For non-service installs, use non-sudo `set -a; . $GENERATED_DIR/ark-rag.env; set +a` before `ark preflight`.
 
 For `llm` or `both` with a real backend configured, also suggest `ark llm test --llm-backend openai-compatible --llm-base-url <url>` once the server is up.
 

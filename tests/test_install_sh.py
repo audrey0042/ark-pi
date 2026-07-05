@@ -1716,12 +1716,218 @@ def test_unknown_env_keys_warn_and_allowlisted_keys_still_pass(tmp_path: Path) -
     assert "ARK_FUTURE_KEY" not in log
 
 
+def _run_service_install_no_validate(
+    tmp_path: Path,
+    role: str,
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    service_root = tmp_path / "service-root"
+    env = fake_helper_env(REPO_ROOT, extra=extra_env)
+    return run_install(
+        "--role",
+        role,
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--service-root",
+        str(service_root),
+        "--repo",
+        "file://fake",
+        "--install-services",
+        "--no-validate",
+        "--yes",
+        env=env,
+    )
+
+
+def _run_real_service_root_rag_install(
+    tmp_path: Path,
+    *,
+    command_log: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+    no_validate: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str], Path]:
+    log_path = command_log or tmp_path / "commands.log"
+    env, system_root = fake_system_root_env(
+        tmp_path,
+        REPO_ROOT,
+        command_log=log_path,
+        extra=extra_env,
+    )
+    args = [
+        "--role",
+        "rag",
+        "--no-os-packages",
+        "--install-services",
+        "--service-root",
+        "/",
+        "--no-enable",
+        "--no-start",
+        "--repo",
+        "file://fake",
+        "--yes",
+    ]
+    if no_validate:
+        args.append("--no-validate")
+    result = run_install(*args, env=env)
+    return result, env, system_root
+
+
+def test_unreadable_generated_env_fails_before_ark_preflight(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path, no_validate=True)
+    assert install.returncode == 0, install.stderr
+    generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
+    generated.chmod(0o000)
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=tmp_path / "prefix",
+        data_dir=tmp_path / "data",
+        generated=tmp_path / "data" / "deploy" / "generated",
+        command_log=command_log,
+    )
+    assert result.returncode != 0
+    assert "[fail] role_env_read" in result.stdout
+    assert "[pass] rag_preflight" not in result.stdout
+    assert "ark preflight" not in read_command_log(command_log)
+
+
+def test_unreadable_redirected_service_env_fails_without_sudo(tmp_path: Path) -> None:
+    install = _run_service_install_no_validate(tmp_path, "rag")
+    assert install.returncode == 0, install.stderr
+    service_root = tmp_path / "service-root"
+    env_file = service_root / "etc" / "ark-pi" / "ark-rag.env"
+    env_file.chmod(0o000)
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=tmp_path / "prefix",
+        data_dir=tmp_path / "data",
+        generated=tmp_path / "data" / "deploy" / "generated",
+        extra_args=[
+            "--service-root",
+            str(service_root),
+            "--install-services",
+        ],
+        command_log=command_log,
+    )
+    assert result.returncode != 0
+    assert "[fail] role_env_read" in result.stdout
+    assert "[pass] rag_preflight" not in result.stdout
+    assert "sudo cat" not in read_command_log(command_log)
+    assert "ark preflight" not in read_command_log(command_log)
+
+
+def test_sudo_assisted_real_service_env_passes_validation(tmp_path: Path) -> None:
+    install, env, system_root = _run_real_service_root_rag_install(
+        tmp_path,
+        no_validate=True,
+    )
+    assert install.returncode == 0, install.stderr
+    env_file = system_root / "etc" / "ark-pi" / "ark-rag.env"
+    assert env_file.is_file()
+    env_file.chmod(0o000)
+    command_log = tmp_path / "validate.log"
+    env["ARK_PI_INSTALL_COMMAND_LOG"] = str(command_log)
+    result = run_install(
+        "--role",
+        "rag",
+        "--validate-only",
+        "--install-services",
+        "--service-root",
+        "/",
+        "--prefix",
+        "/opt/ark-pi",
+        "--data-dir",
+        "/srv/ark-pi",
+        "--generated-dir",
+        "/srv/ark-pi/deploy/generated",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "sudo cat" in log
+    assert "ARK_WORKSPACE_DIR=/generated/rag/workspace" in log
+    assert "[pass] rag_preflight" in result.stdout
+
+
+def test_sudo_cat_failure_fails_before_ark_preflight(tmp_path: Path) -> None:
+    install, env, system_root = _run_real_service_root_rag_install(
+        tmp_path,
+        no_validate=True,
+    )
+    assert install.returncode == 0, install.stderr
+    env_file = system_root / "etc" / "ark-pi" / "ark-rag.env"
+    env_file.chmod(0o000)
+    command_log = tmp_path / "validate.log"
+    env["ARK_PI_INSTALL_COMMAND_LOG"] = str(command_log)
+    env["ARK_PI_INSTALL_SUDO_CAT_FAIL"] = "1"
+    result = run_install(
+        "--role",
+        "rag",
+        "--validate-only",
+        "--install-services",
+        "--service-root",
+        "/",
+        "--prefix",
+        "/opt/ark-pi",
+        "--data-dir",
+        "/srv/ark-pi",
+        "--generated-dir",
+        "/srv/ark-pi/deploy/generated",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "[fail] role_env_read" in result.stdout
+    assert "[pass] rag_preflight" not in result.stdout
+    assert "ark preflight" not in read_command_log(command_log)
+
+
+def test_malformed_service_env_via_sudo_fails_before_ark_preflight(tmp_path: Path) -> None:
+    install, env, system_root = _run_real_service_root_rag_install(
+        tmp_path,
+        no_validate=True,
+    )
+    assert install.returncode == 0, install.stderr
+    env_file = system_root / "etc" / "ark-pi" / "ark-rag.env"
+    env_file.write_text("not-a-valid-env-line\n", encoding="utf-8")
+    env_file.chmod(0o000)
+    command_log = tmp_path / "validate.log"
+    env["ARK_PI_INSTALL_COMMAND_LOG"] = str(command_log)
+    result = run_install(
+        "--role",
+        "rag",
+        "--validate-only",
+        "--install-services",
+        "--service-root",
+        "/",
+        "--prefix",
+        "/opt/ark-pi",
+        "--data-dir",
+        "/srv/ark-pi",
+        "--generated-dir",
+        "/srv/ark-pi/deploy/generated",
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "[fail] role_env_parse" in result.stdout
+    assert "[pass] rag_preflight" not in result.stdout
+    assert "ark preflight" not in read_command_log(command_log)
+
+
 def test_printed_validation_commands_for_service_install_include_env_loading(
     tmp_path: Path,
 ) -> None:
     result = _run_service_install(tmp_path, "rag")
     assert result.returncode == 0, result.stderr
     assert "set -a" in result.stdout
+    assert "sudo sh -c" not in result.stdout
     service_root = tmp_path / "service-root"
     assert str(service_root / "etc" / "ark-pi" / "ark-rag.env") in result.stdout
     assert "bare ark preflight uses default config" in result.stdout
@@ -1734,7 +1940,16 @@ def test_printed_validation_commands_for_non_service_install_include_generated_e
     assert result.returncode == 0, result.stderr
     generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
     assert "set -a" in result.stdout
+    assert "sudo sh -c" not in result.stdout
     assert str(generated) in result.stdout
+
+
+def test_printed_validation_commands_for_real_service_root_use_sudo(tmp_path: Path) -> None:
+    result, _, _system_root = _run_real_service_root_rag_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "sudo sh -c" in result.stdout
+    assert "/etc/ark-pi/ark-rag.env" in result.stdout
+    assert "root:root mode 0640" in result.stdout
 
 
 def test_dry_run_does_not_run_env_aware_validation_commands(tmp_path: Path) -> None:

@@ -10,6 +10,30 @@ if [ "$1" = "chown" ] && [ "${ARK_PI_INSTALL_CHOWN_FAIL:-0}" = "1" ]; then
   exit 1
 fi
 
+if [ "$1" = "cat" ]; then
+  shift
+  if [ "${ARK_PI_INSTALL_SUDO_CAT_FAIL:-0}" = "1" ]; then
+    echo "fake sudo: cat failed" >&2
+    exit 1
+  fi
+  _target="$1"
+  if [ -n "$_target" ] && [ ! -r "$_target" ] && [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+    case "$_target" in
+      "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}"/*)
+        chmod u+r "$_target" 2>/dev/null || true
+        ;;
+      /etc/ark-pi/*)
+        _mapped="${ARK_PI_INSTALL_TEST_SYSTEM_ROOT}${_target}"
+        if [ -e "$_mapped" ]; then
+          chmod u+r "$_mapped" 2>/dev/null || true
+          exec /bin/cat "$_mapped"
+        fi
+        ;;
+    esac
+  fi
+  exec /bin/cat "$@"
+fi
+
 if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
   case "$1" in
     mkdir)

@@ -13,6 +13,9 @@ case "$1" in
     exit 0
     ;;
   daemon-reload|enable|start|disable|stop|restart)
+    if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+      exit 0
+    fi
     echo "fake-systemctl: mutating command rejected: $*" >&2
     exit 1
     ;;

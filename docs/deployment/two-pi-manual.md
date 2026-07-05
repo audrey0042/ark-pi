@@ -312,15 +312,12 @@ Repeat analogous steps for ark-llm on the LLM host.
 
 ## Validation checklist
 
-Run on **ark-rag** (load the installed role env first so CLI checks match `ark-rag.service`):
+Run on **ark-rag** (installed env is `/etc/ark-pi/ark-rag.env`, `root:root` mode `0640`; load it with sudo so CLI checks match `ark-rag.service`):
 
 ```bash
-set -a
-. /etc/ark-pi/ark-rag.env
-set +a
-/opt/ark-pi/.venv/bin/ark preflight
-/opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag
-/opt/ark-pi/.venv/bin/ark llm status
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag'
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
 /opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
 ```
 

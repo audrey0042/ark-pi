@@ -83,15 +83,14 @@ Use `--no-os-packages` or `--package-manager none` to skip apt and only verify r
 
 After a real install, validation runs automatically (app CLI, data dirs, generated templates, role-env-aware `ark preflight` / `ark llm status`, `ark deploy preflight`, optional service files). Use `--no-validate` to skip, or `--validate-only` to check an existing install without mutations. Validation does not test llama.cpp inference or network configuration.
 
-On a real **rag-pi** install (Raspberry Pi 5 / Debian 13 trixie), `ark-rag.service` loads `/etc/ark-pi/ark-rag.env`, but bare `ark preflight` uses default user-local config. Load the role env before manual CLI checks:
+On a real **rag-pi** install (Raspberry Pi 5 / Debian 13 trixie), `ark-rag.service` loads `/etc/ark-pi/ark-rag.env` (installed `root:root` mode `0640`), but bare `ark preflight` uses default user-local config. Load the role env before manual CLI checks (requires sudo because the env file is not world-readable):
 
 ```bash
-set -a; . /etc/ark-pi/ark-rag.env; set +a
-/opt/ark-pi/.venv/bin/ark preflight
-/opt/ark-pi/.venv/bin/ark llm status
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
 ```
 
-With `--install-services`, installer validation prefers `/etc/ark-pi/ark-rag.env` (or `--service-root` equivalent). Without it, validation prefers `$GENERATED_DIR/ark-rag.env`.
+With `--install-services`, installer validation prefers `/etc/ark-pi/ark-rag.env` (or `--service-root` equivalent) and uses read-only `sudo cat` when the env file is not readable unprivileged. Without `--install-services`, validation prefers `$GENERATED_DIR/ark-rag.env` (no sudo).
 
 Does **not** install llama.cpp or models. Does **not** configure network or WiFi AP.
 
@@ -140,7 +139,7 @@ ark deploy unpack-bundle --bundle /tmp/ark-pi-deploy-bundle.zip --staging-dir /t
 
 Outputs include `ark-rag.env`, `ark-rag.service`, `ark-llm.env`, `ark-llm.service`, plus preflight/plan reports.
 
-Warnings about missing `/opt/ark-pi` or llama.cpp on a laptop are normal. `ark preflight` checks the app using current shell env (load `/etc/ark-pi/ark-rag.env` on a Pi to match the service); `ark deploy preflight` checks rendered templates.
+Warnings about missing `/opt/ark-pi` or llama.cpp on a laptop are normal. `ark preflight` checks the app using current shell env (on a Pi, load `/etc/ark-pi/ark-rag.env` via `sudo sh -c` to match the service); `ark deploy preflight` checks rendered templates.
 
 More: [docs/deployment/README.md](docs/deployment/README.md).
 
