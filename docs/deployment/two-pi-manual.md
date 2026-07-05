@@ -312,14 +312,19 @@ Repeat analogous steps for ark-llm on the LLM host.
 
 ## Validation checklist
 
-Run on **ark-rag**:
+Run on **ark-rag** (load the installed role env first so CLI checks match `ark-rag.service`):
 
 ```bash
-ark preflight
-ark deploy preflight --generated-dir deploy/generated
-ark llm status
-ark llm test --llm-backend mock
+set -a
+. /etc/ark-pi/ark-rag.env
+set +a
+/opt/ark-pi/.venv/bin/ark preflight
+/opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag
+/opt/ark-pi/.venv/bin/ark llm status
+/opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
 ```
+
+Bare `ark preflight` without loading `/etc/ark-pi/ark-rag.env` uses default config paths, not the service environment.
 
 When ark-llm is configured:
 

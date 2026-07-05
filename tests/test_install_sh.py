@@ -827,7 +827,9 @@ def test_rag_service_install_copies_files(tmp_path: Path) -> None:
     svc_file = service_root / "etc" / "systemd" / "system" / "ark-rag.service"
     assert env_file.is_file()
     assert svc_file.is_file()
-    assert env_file.read_text(encoding="utf-8") == "ARK_ROLE=rag\n"
+    assert env_file.read_text(encoding="utf-8") == (
+        "ARK_ROLE=rag\nARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+    )
     assert not (service_root / "etc" / "ark-pi" / "ark-llm.env").exists()
 
 
@@ -869,7 +871,9 @@ def test_existing_service_files_are_backed_up(tmp_path: Path) -> None:
 
     result = _run_service_install(tmp_path, "rag")
     assert result.returncode == 0, result.stderr
-    assert existing.read_text(encoding="utf-8") == "ARK_ROLE=rag\n"
+    assert existing.read_text(encoding="utf-8") == (
+        "ARK_ROLE=rag\nARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+    )
     backups = list((service_root / "etc" / "ark-pi").glob("ark-rag.env.bak.*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == "old content"
@@ -1433,3 +1437,321 @@ def test_validation_output_includes_pass_warning_fail_labels(tmp_path: Path) -> 
     assert "[pass]" in result.stdout
     assert "[warning]" in result.stdout
     assert "[fail]" not in result.stdout
+
+
+RAG_SERVICE_ENV = (
+    "ARK_ROLE=rag\n"
+    "ARK_WORKSPACE_DIR=/service/rag/workspace\n"
+    "ARK_SOURCE_DIR=/service/rag/sources\n"
+)
+RAG_GENERATED_ENV = (
+    "ARK_ROLE=rag\n"
+    "ARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+)
+LLM_SERVICE_ENV = "ARK_ROLE=llm\nARK_MODEL_PATH=/service/llm/model.gguf\n"
+LLM_GENERATED_ENV = "ARK_ROLE=llm\nARK_MODEL_PATH=/generated/llm/model.gguf\n"
+
+
+def _write_env(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _run_rag_install_with_command_log(
+    tmp_path: Path,
+    *,
+    install_services: bool = False,
+    service_root: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path, str]:
+    command_log = tmp_path / "commands.log"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=command_log)
+    args = [
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+    ]
+    if install_services:
+        args.extend(
+            [
+                "--service-root",
+                str(service_root or tmp_path / "service-root"),
+                "--install-services",
+            ]
+        )
+    result = run_install(*args, env=env)
+    return result, command_log, read_command_log(command_log)
+
+
+def test_post_install_validation_without_services_uses_generated_rag_env(
+    tmp_path: Path,
+) -> None:
+    result, _, log = _run_rag_install_with_command_log(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "ark preflight env:" in log
+    assert "ARK_WORKSPACE_DIR=/generated/rag/workspace" in log
+    assert "/service/rag/workspace" not in log
+
+
+def test_post_install_validation_with_services_uses_service_rag_env(tmp_path: Path) -> None:
+    service_root = tmp_path / "service-root"
+    result, _, log = _run_rag_install_with_command_log(
+        tmp_path,
+        install_services=True,
+        service_root=service_root,
+    )
+    assert result.returncode == 0, result.stderr
+    expected_env = str(service_root / "etc" / "ark-pi" / "ark-rag.env")
+    assert expected_env in result.stdout
+    assert "[pass] rag_preflight" in result.stdout
+    assert "ark preflight env:" in log
+
+
+def test_validate_only_install_services_uses_service_rag_env(tmp_path: Path) -> None:
+    install = _run_service_install(tmp_path, "rag")
+    assert install.returncode == 0, install.stderr
+    service_root = tmp_path / "service-root"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    _write_env(service_root / "etc" / "ark-pi" / "ark-rag.env", RAG_SERVICE_ENV)
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=[
+            "--service-root",
+            str(service_root),
+            "--install-services",
+        ],
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "ARK_WORKSPACE_DIR=/service/rag/workspace" in log
+
+
+def test_validate_only_without_services_uses_generated_rag_env(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "ARK_WORKSPACE_DIR=/generated/rag/workspace" in log
+
+
+def test_validate_only_falls_back_to_service_env_when_generated_missing(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--service-root",
+        str(service_root),
+        "--install-services",
+        "--no-validate",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    _write_env(service_root / "etc" / "ark-pi" / "ark-rag.env", RAG_SERVICE_ENV)
+    (generated / "ark-rag.env").unlink()
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--service-root", str(service_root)],
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[warning] role_env_file" in result.stdout
+    log = read_command_log(command_log)
+    assert "ARK_WORKSPACE_DIR=/service/rag/workspace" in log
+
+
+def test_both_role_validation_uses_separate_env_files(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    service_root = tmp_path / "service-root"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "both",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--service-root",
+        str(service_root),
+        "--install-services",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    _write_env(service_root / "etc" / "ark-pi" / "ark-rag.env", RAG_SERVICE_ENV)
+    _write_env(service_root / "etc" / "ark-pi" / "ark-llm.env", LLM_SERVICE_ENV)
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "both",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=[
+            "--service-root",
+            str(service_root),
+            "--install-services",
+        ],
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(command_log)
+    assert "ARK_WORKSPACE_DIR=/service/rag/workspace" in log
+    assert "ARK_MODEL_PATH=/service/llm/model.gguf" in log
+
+
+def test_malformed_env_file_fails_before_ark_preflight(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
+    generated.write_text("not-a-valid-env-line\n", encoding="utf-8")
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=tmp_path / "prefix",
+        data_dir=tmp_path / "data",
+        generated=tmp_path / "data" / "deploy" / "generated",
+        command_log=command_log,
+    )
+    assert result.returncode != 0
+    assert "[fail] role_env_parse" in result.stdout
+    assert "ark preflight" not in read_command_log(command_log)
+
+
+def test_missing_selected_env_file_fails_validation(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
+    generated.unlink()
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=tmp_path / "prefix",
+        data_dir=tmp_path / "data",
+        generated=tmp_path / "data" / "deploy" / "generated",
+    )
+    assert result.returncode != 0
+    assert "[fail] deploy_templates" in result.stdout or "[fail] role_env_file" in result.stdout
+
+
+def test_unknown_env_keys_warn_and_allowlisted_keys_still_pass(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
+    generated.write_text(
+        "ARK_ROLE=rag\n"
+        "ARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+        "ARK_FUTURE_KEY=ignored\n",
+        encoding="utf-8",
+    )
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=tmp_path / "prefix",
+        data_dir=tmp_path / "data",
+        generated=tmp_path / "data" / "deploy" / "generated",
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[warning] role_env_unknown_keys" in result.stdout
+    assert "ARK_FUTURE_KEY" in result.stdout
+    log = read_command_log(command_log)
+    assert "ARK_WORKSPACE_DIR=/generated/rag/workspace" in log
+    assert "ARK_FUTURE_KEY" not in log
+
+
+def test_printed_validation_commands_for_service_install_include_env_loading(
+    tmp_path: Path,
+) -> None:
+    result = _run_service_install(tmp_path, "rag")
+    assert result.returncode == 0, result.stderr
+    assert "set -a" in result.stdout
+    service_root = tmp_path / "service-root"
+    assert str(service_root / "etc" / "ark-pi" / "ark-rag.env") in result.stdout
+    assert "bare ark preflight uses default config" in result.stdout
+
+
+def test_printed_validation_commands_for_non_service_install_include_generated_env(
+    tmp_path: Path,
+) -> None:
+    result = _run_rag_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    generated = tmp_path / "data" / "deploy" / "generated" / "ark-rag.env"
+    assert "set -a" in result.stdout
+    assert str(generated) in result.stdout
+
+
+def test_dry_run_does_not_run_env_aware_validation_commands(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(tmp_path / "prefix"),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--repo",
+        "file://fake",
+        "--yes",
+        "--dry-run",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert read_command_log(command_log) == ""

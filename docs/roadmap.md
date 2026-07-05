@@ -234,7 +234,13 @@ Prepare default `/opt/ark-pi` and `/srv/ark-pi` with sudo when needed: `mkdir -p
 
 ## 43. Install validation
 
-Post-install validation and `--validate-only` mode: check app CLI, role data dirs, generated templates, `ark deploy preflight`, optional service files, and read-only systemctl state. Flags: `--validate-only`, `--no-validate`. Does not test model inference or networking.
+Post-install validation and `--validate-only` mode: check app CLI, role data dirs, generated templates, role-env-aware `ark preflight` / `ark llm status`, `ark deploy preflight`, optional service files, and read-only systemctl state. Flags: `--validate-only`, `--no-validate`. Does not test model inference or networking.
+
+**Status: done**
+
+## 44. Installer env-aware validation
+
+Installer validation and printed post-install commands load the generated or installed role env file (`$GENERATED_DIR/ark-rag.env` or `/etc/ark-pi/ark-rag.env`) before `ark preflight` and `ark llm status`, matching the systemd service on real rag-pi installs. Safe env parsing uses an allowlist; unknown keys warn and are ignored. Observed on Raspberry Pi 5 / Debian 13 trixie: bare `ark preflight` used user-local defaults while `ark-rag.service` correctly used `/etc/ark-pi/ark-rag.env`.
 
 **Status: done**
 
