@@ -6,7 +6,7 @@ Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual
 
 ## Status
 
-- `install.sh` at repo root. On apt-based systems, installs minimal OS packages before app bootstrap.
+- `install.sh` at repo root. On apt-based systems, installs the RAG Pi OS prerequisite baseline before app bootstrap.
 - App bootstrap + `ark deploy render` into `--generated-dir`.
 - `--install-services` copies rendered env/systemd files under `--service-root` (default `/`). Backs up existing files. `systemctl daemon-reload/enable/start` when service root is `/` (respects `--no-enable`, `--no-start`).
 - `--service-root /tmp/...` for safe testing: files only, no systemctl.
@@ -23,6 +23,18 @@ sh install.sh --role rag --install-services --dry-run
 sh install.sh --role rag --service-root /tmp/ark-pi-service-root --install-services --yes
 sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
 ```
+
+## OS prerequisites (apt)
+
+On Debian-family hosts, `install.sh` installs this apt package baseline before app bootstrap:
+
+`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`
+
+This baseline was derived from a real rag-pi inventory: **Raspberry Pi 5 / Debian 13 trixie (aarch64)**, Python 3.13.5. On that host, `git` and `python3-pip` were missing; `python3-venv` was present. `python3-dev`, `build-essential`, and `pkg-config` provide ARM64/Python build insurance; `rsync`, `unzip`, and `jq` are practical operator tools.
+
+**Out of scope:** llama.cpp build dependencies, model download, WiFi AP, and network automation.
+
+Flags: `--no-os-packages` and `--package-manager none` skip apt and verify `git`, `python3`, `curl`, and `python3 -m venv` only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 
 ## Target user experience
 

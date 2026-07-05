@@ -43,6 +43,26 @@ ark-llm stays stateless on purpose. Indexes and prompts live on ark-rag. ark-llm
 - A **GGUF model file** is required only for the real ark-llm inference path.
 - Network between ark-rag and ark-llm is reachable on the configured LLM port (default `8080` in generated templates).
 
+## RAG Pi OS prerequisites
+
+The first observed RAG Pi target is **Raspberry Pi 5 / Debian 13 trixie (aarch64)**. On apt-based Debian-family hosts, `install.sh` can install this baseline before app bootstrap:
+
+`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`
+
+Plan what would be installed (no host changes):
+
+```bash
+sh install.sh --role rag --dry-run
+```
+
+If packages are already present, skip apt and verify commands only:
+
+```bash
+sh install.sh --role rag --no-os-packages --dry-run
+```
+
+llama.cpp build, GGUF model placement, and network/WiFi setup remain manual on ark-llm and are documented separately below.
+
 ## First smoke (any machine)
 
 Run on a laptop or either Pi before systemd or llama.cpp.

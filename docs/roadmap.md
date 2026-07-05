@@ -214,7 +214,7 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 `install.sh` at repo root.
 
-**App bootstrap + deploy render + optional service install + apt OS prerequisites + validation (done):** minimal packages on Debian-family hosts, clone, venv, pip, data dirs, `ark deploy render`, post-install validation, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`.
+**App bootstrap + deploy render + optional service install + apt OS prerequisites + validation (done):** RAG Pi baseline packages on Debian-family hosts (`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`), clone, venv, pip, data dirs, `ark deploy render`, post-install validation, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`. First observed target: Raspberry Pi 5 / Debian 13 trixie.
 
 ```bash
 sh install.sh --role rag --dry-run
@@ -234,7 +234,7 @@ Post-install validation and `--validate-only` mode: check app CLI, role data dir
 
 ## 42. Install OS prerequisites
 
-Apt-based OS package install on Debian-family systems: `ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`. Flags: `--no-os-packages`, `--package-manager auto|apt|none`. Dry-run prints apt plan without calling apt or sudo.
+Apt-based OS package install on Debian-family systems: `ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`. First observed RAG Pi target: Raspberry Pi 5 / Debian 13 trixie. Flags: `--no-os-packages`, `--package-manager auto|apt|none`. Dry-run prints apt plan without calling apt or sudo.
 
 **Status: done**
 

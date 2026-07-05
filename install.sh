@@ -32,7 +32,7 @@ VALIDATION_WARNED=0
 OS=""
 ARCH=""
 
-APT_PACKAGES="ca-certificates curl git python3 python3-venv python3-pip"
+APT_PACKAGES="ca-certificates curl git python3 python3-venv python3-pip python3-dev build-essential pkg-config rsync unzip jq"
 
 usage() {
   cat <<'EOF'
@@ -43,7 +43,7 @@ role-specific data directories, deployment template render, and optional
 env/systemd file install.
 
 Does not install llama.cpp or download models. On Debian-family hosts,
-can install minimal apt prerequisites (git, python3, python3-venv, etc.).
+can install RAG Pi apt prerequisites (git, python3, python3-venv, python3-pip, build tools, etc.).
 
 Usage:
   sh install.sh [options]

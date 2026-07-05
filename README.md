@@ -71,7 +71,9 @@ Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.m
 
 ## Install bootstrap (`install.sh`)
 
-`install.sh` bootstraps the app and renders deployment templates: on apt-based hosts (Raspberry Pi OS, Debian, Ubuntu) it can install minimal OS packages (`git`, `python3`, `python3-venv`, `python3-pip`, `curl`, `ca-certificates`), then clone/update repo, venv, `pip install -e`, role data dirs, and `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
+`install.sh` bootstraps the app and renders deployment templates: on apt-based Debian-family hosts (Raspberry Pi OS, Debian, Ubuntu) it can install the RAG Pi OS prerequisite baseline (`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`), then clone/update repo, venv, `pip install -e`, role data dirs, and `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
+
+**Raspberry Pi 5 / Debian 13 trixie (aarch64)** is the first observed RAG Pi target for this baseline.
 
 With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: OS packages (if enabled) + app bootstrap + render only.
 

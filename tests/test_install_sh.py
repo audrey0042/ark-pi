@@ -12,6 +12,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
 FAKE_BIN = REPO_ROOT / "tests" / "fixtures" / "install_helpers"
 
+EXPECTED_APT_PACKAGES = (
+    "ca-certificates",
+    "curl",
+    "git",
+    "python3",
+    "python3-venv",
+    "python3-pip",
+    "python3-dev",
+    "build-essential",
+    "pkg-config",
+    "rsync",
+    "unzip",
+    "jq",
+)
+
 
 def run_install(
     *args: str,
@@ -160,8 +175,8 @@ def test_dry_run_prints_apt_package_plan() -> None:
     result = run_install("--role", "rag", "--dry-run")
     assert result.returncode == 0, result.stderr
     assert "apt-get update" in result.stdout
-    assert "python3-venv" in result.stdout
-    assert "ca-certificates" in result.stdout
+    for package in EXPECTED_APT_PACKAGES:
+        assert package in result.stdout
 
 
 def test_dry_run_does_not_call_fake_apt_get(tmp_path: Path) -> None:
@@ -223,9 +238,8 @@ def test_apt_install_runs_before_git_clone(tmp_path: Path) -> None:
     log = read_command_log(command_log)
     assert "apt-get update" in log
     assert "apt-get install -y" in log
-    assert "ca-certificates" in log
-    assert "python3-venv" in log
-    assert "python3-pip" in log
+    for package in EXPECTED_APT_PACKAGES:
+        assert package in log
     assert log.index("apt-get update") < log.index("git clone")
 
 
@@ -402,7 +416,8 @@ def test_package_manager_none_missing_commands_shows_guidance(tmp_path: Path) ->
     )
     assert result.returncode != 0
     assert "Install these packages manually" in result.stderr
-    assert "python3-venv" in result.stderr
+    for package in EXPECTED_APT_PACKAGES:
+        assert package in result.stderr
 
 
 def test_dry_run_includes_clone_venv_render_and_data_dirs() -> None:
