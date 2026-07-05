@@ -92,7 +92,26 @@ sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bi
 
 With `--install-services`, installer validation prefers `/etc/ark-pi/ark-rag.env` (or `--service-root` equivalent) and uses read-only `sudo cat` when the env file is not readable unprivileged. Without `--install-services`, validation prefers `$GENERATED_DIR/ark-rag.env` (no sudo).
 
-Does **not** install llama.cpp or models. Does **not** configure network or WiFi AP.
+On a real **llm-pi** install, load `/etc/ark-pi/ark-llm.env` before manual checks:
+
+```bash
+sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo systemctl status ark-llm.service --no-pager
+ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/models/model.gguf
+```
+
+Baseline LLM install (`--role llm --install-services --no-start --yes`) completes with **PASS (with warnings)** when the GGUF model is not present yet. Missing model is a warning, not a failure. With `--no-start`, an inactive `ark-llm.service` is expected.
+
+Does **not** download GGUF models. Optional llama.cpp source build with `--llama-build` (role `llm` or `both`). Does **not** configure network or WiFi AP.
+
+LLM Pi example (build llama.cpp, install services; model file remains manual):
+
+```bash
+sh install.sh --role llm --llama-build --install-services --yes
+```
+
+If the model file is missing at install time, `ark-llm.service` is installed and enabled but not started. Place `model.gguf` at `/srv/ark-pi/models/model.gguf`, then run `sudo systemctl start ark-llm.service`.
 
 Plan only (includes apt package plan on Debian-family systems):
 
@@ -150,15 +169,15 @@ More: [docs/deployment/README.md](docs/deployment/README.md).
 | [docs/architecture.md](docs/architecture.md) | Request flow, APIs |
 | [docs/roadmap.md](docs/roadmap.md) | What's done vs TODO |
 | [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md) | Manual Pi setup |
-| [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md) | Installer contract (app bootstrap + future services) |
+| [docs/deployment/installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md) | Installer contract (app bootstrap + optional llama.cpp build + services) |
 | [docs/deployment/README.md](docs/deployment/README.md) | Deploy doc index |
 | [docs/hardware.md](docs/hardware.md) | Hardware notes |
 
 ## Not done yet
 
 - WiFi AP
-- Service install to real `/etc` via install.sh needs `--install-services` and root/sudo; llama.cpp/models/network still manual
-- llama.cpp install automation
+- Service install to real `/etc` via install.sh needs `--install-services` and root/sudo; model download/network still manual
+- llama.cpp optional via `install.sh --llama-build` (does not download models)
 - Model download/management
 - Auth
 - Chroma/semantic search as default production path

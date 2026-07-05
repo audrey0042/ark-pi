@@ -1,0 +1,57 @@
+#!/bin/sh
+# Fake cmake for install.sh llama.cpp build tests.
+
+die() {
+  echo "fake-cmake: $*" >&2
+  exit 1
+}
+
+log_command() {
+  if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+    echo "cmake $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+  fi
+}
+
+if [ "${ARK_PI_INSTALL_CMAKE_FAIL:-0}" = "1" ]; then
+  die "cmake failed (test hook)"
+fi
+
+if [ "$1" = "-B" ]; then
+  log_command "$@"
+  if [ -z "${2:-}" ]; then
+    die "missing build directory"
+  fi
+  mkdir -p "$2"
+  exit 0
+fi
+
+if [ "$1" = "--build" ]; then
+  log_command "$@"
+  if [ -z "${2:-}" ]; then
+    die "missing build directory"
+  fi
+  _build_dir="$2"
+  if [ -n "${ARK_PI_INSTALL_LLAMA_BIN:-}" ]; then
+    _bin="$ARK_PI_INSTALL_LLAMA_BIN"
+  else
+    _bin="$_build_dir/bin/llama-server"
+  fi
+  mkdir -p "$(dirname "$_bin")"
+  cat > "$_bin" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--help" ]; then
+  echo "Usage: llama-server [options]"
+  echo "  --host HOST"
+  echo "  --port PORT"
+  echo "  --model PATH"
+  echo "  --ctx-size N"
+  echo "  --threads N"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$_bin"
+  exit 0
+fi
+
+exit 0

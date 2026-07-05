@@ -35,15 +35,24 @@ if [ "$1" = "clone" ]; then
   if [ $# -lt 2 ]; then
     die "clone requires repo and destination"
   fi
+  _repo="$1"
   _dest="$2"
-  if [ -z "${ARK_INSTALL_LOCAL_REPO:-}" ]; then
+  _source="${ARK_INSTALL_LOCAL_REPO}"
+  case "$_dest" in
+    *llama.cpp*)
+      if [ -n "${ARK_INSTALL_LOCAL_LLAMA_REPO:-}" ]; then
+        _source="$ARK_INSTALL_LOCAL_LLAMA_REPO"
+      fi
+      ;;
+  esac
+  if [ -z "$_source" ]; then
     die "ARK_INSTALL_LOCAL_REPO is not set"
   fi
-  if [ ! -d "$ARK_INSTALL_LOCAL_REPO" ]; then
-    die "ARK_INSTALL_LOCAL_REPO is missing: $ARK_INSTALL_LOCAL_REPO"
+  if [ ! -d "$_source" ]; then
+    die "local repo is missing: $_source"
   fi
   mkdir -p "$_dest"
-  cp -a "$ARK_INSTALL_LOCAL_REPO/." "$_dest/"
+  cp -a "$_source/." "$_dest/"
   rm -rf "$_dest/.venv"
   rm -rf "$_dest/.git"
   mkdir -p "$_dest/.git"

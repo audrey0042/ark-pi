@@ -222,9 +222,25 @@ sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir 
 sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-root --yes
 ```
 
-**Future (not started):** llama.cpp, model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+**Future (not started):** model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: OS packages + path ownership + app bootstrap + render + service files + validation done; llm/network not started**
+**Status: OS packages + path ownership + app bootstrap + render + service files + validation done; optional llama.cpp build via `--llama-build`; model/network not automated**
+
+## 46. llama.cpp server bootstrap
+
+Optional llama.cpp source build in `install.sh` for role `llm` or `both`: clone to `$PREFIX/vendor/llama.cpp`, cmake build `llama-server`, render `ark-llm.env` / `ark-llm.service` with `ARK_LLAMA_*` paths, validate binary and model paths. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Missing GGUF is a validation warning by default; `--require-model` fails. Service install skips `systemctl start` for `ark-llm` when the model file is absent.
+
+```bash
+sh install.sh --role llm --llama-build --dry-run
+sh install.sh --role llm --llama-build --install-services --yes
+sh install.sh --role llm --validate-only --install-services
+```
+
+Model acquisition, model selection, networking/AP, and RAG-to-LLM integration smoke on real Pi hardware remain follow-up work.
+
+**Real llm-pi baseline (before `--llama-build`):** `--role llm --install-services --no-start --yes` completed with PASS (warnings) for missing model and inactive service. Legacy `ARK_LLAMACPP_*` env keys observed on installed baseline; new renders migrate to `ARK_LLAMA_*` / `ARK_MODEL_*`.
+
+**Status: done (installer automation; model download still manual)**
 
 ## 45. Service env validation permissions
 

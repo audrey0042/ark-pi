@@ -131,7 +131,7 @@ def test_preflight_invalid_llm_port_produces_blocked(rendered_dir: Path) -> None
     llm_env = rendered_dir / "ark-llm.env"
     content = llm_env.read_text(encoding="utf-8")
     llm_env.write_text(
-        content.replace("ARK_LLM_PORT=8080", "ARK_LLM_PORT=not-a-port"),
+        content.replace("ARK_LLAMA_PORT=8080", "ARK_LLAMA_PORT=not-a-port"),
         encoding="utf-8",
     )
 

@@ -537,7 +537,7 @@ def _check_template_sanity(
                 (f"templates/{LLM_ENV_FILENAME}", "ARK_ROLE=llm", "llm env marker"),
                 (
                     f"templates/{LLM_SERVICE_FILENAME}",
-                    "${ARK_LLAMACPP_SERVER_BIN}",
+                    "${ARK_LLAMA_BIN}",
                     "llm service marker",
                 ),
             ]

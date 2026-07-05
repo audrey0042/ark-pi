@@ -1,6 +1,6 @@
 # Installer bootstrap contract
 
-Design doc for `install.sh`. **Current script:** apt-based OS prerequisite install (Debian-family), app bootstrap, deploy template render, optional service file install (`--install-services`), and post-install / validation-only checks. llama.cpp, model download, and network/WiFi remain manual.
+Design doc for `install.sh`. **Current script:** apt-based OS prerequisite install (Debian-family), app bootstrap, deploy template render, optional llama.cpp source build (`--llama-build`), optional service file install (`--install-services`), and post-install / validation-only checks. Model download and network/WiFi remain manual.
 
 Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual.md).
 
@@ -13,7 +13,8 @@ Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual
 - `--no-os-packages` / `--package-manager none` skip apt and verify commands only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 - `--dry-run` prints the plan (including apt commands when enabled) with no mutations. Non-interactive install requires `--yes`.
 - Post-install validation runs after a successful real install unless `--no-validate`. `--validate-only` checks an existing install with no mutations.
-- Not implemented: llama.cpp, model fetch, WiFi/network, auth, non-apt package managers.
+- Not implemented: model fetch, WiFi/network, auth, non-apt package managers.
+- Optional: llama.cpp source build with `--llama-build` (role `llm` or `both` only).
 - [two-pi-manual.md](two-pi-manual.md) stays the full deployment guide.
 
 ```bash
@@ -32,7 +33,9 @@ On Debian-family hosts, `install.sh` installs this apt package baseline before a
 
 This baseline was derived from a real rag-pi inventory: **Raspberry Pi 5 / Debian 13 trixie (aarch64)**, Python 3.13.5. On that host, `git` and `python3-pip` were missing; `python3-venv` was present. `python3-dev`, `build-essential`, and `pkg-config` provide ARM64/Python build insurance; `rsync`, `unzip`, and `jq` are practical operator tools.
 
-**Out of scope:** llama.cpp build dependencies, model download, WiFi AP, and network automation.
+**Out of scope:** model download, WiFi AP, and network automation.
+
+**Optional llama.cpp build (`--llama-build` only):** `cmake`, `libcurl4-openssl-dev`, `ccache`. These are **not** installed for `--role llm` alone without `--llama-build`.
 
 Flags: `--no-os-packages` and `--package-manager none` skip apt and verify `git`, `python3`, `curl`, and `python3 -m venv` only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 
@@ -214,7 +217,7 @@ Services (when `--install-services`, or service files exist under service root):
 12. Create Python virtualenv and `pip install` Ark Pi.
 13. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
 14. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
-15. llama.cpp / model fetch / network (future).
+15. Optional llama.cpp clone/build when `--llama-build` (role `llm` or `both`).
 16. Run post-install validation unless `--no-validate`.
 17. Print validation commands.
 
@@ -230,10 +233,13 @@ Services (when `--install-services`, or service files exist under service root):
 
 ### `llm`
 
-- Prepare model directory under `--data-dir`; do not fetch a GGUF silently.
-- llama.cpp build/install may live in this script or a separate helper (open decision).
-- Render `ark-llm.env` and `ark-llm.service` into `--generated-dir` (review only).
-- Print commands to verify the llama.cpp server responds (exact endpoint depends on build).
+- Create model directory under `--model-dir` (default `$DATA_DIR/models`); do not fetch a GGUF.
+- Optional `--llama-build`: clone llama.cpp to `$PREFIX/vendor/llama.cpp`, cmake build `llama-server` at `$PREFIX/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`.
+- Render `ark-llm.env` and `ark-llm.service` with `ARK_LLAMA_BIN`, `ARK_MODEL_PATH`, host/port, context, threads.
+- With `--install-services`: if `model.gguf` is missing, install and enable `ark-llm.service` but skip `systemctl start` until the operator places the model.
+- Validation: missing model file is a **warning** by default; **`--require-model`** makes it a failure. Missing `llama-server` binary fails only when llama.cpp build is expected (`--llama-build` or existing source tree). `--validate-only` never clones, builds, or installs apt packages.
+
+Flags: `--llama-build`, `--no-llama-build`, `--llama-repo`, `--llama-ref`, `--llama-dir`, `--llama-build-dir`, `--llama-bin`, `--model-dir`, `--model-path`, `--require-model`, `--build-jobs`. **`--role rag --llama-build` is rejected.**
 
 ### `both`
 
@@ -243,20 +249,38 @@ Services (when `--install-services`, or service files exist under service root):
 
 ## Validation commands to print
 
-After install with `--install-services` and `--service-root /`, suggest loading the installed role env via sudo (env files are `root:root` mode `0640`; bare `ark preflight` is not service-equivalent):
+Post-install output is **role-specific**. The installer prints one-liner env examples and follow-up checks matching the selected role.
+
+**`rag`:** load `/etc/ark-pi/ark-rag.env`, `ark preflight`, `ark llm status`, RAG API curl checks on port 8000.
+
+**`llm`:** load `/etc/ark-pi/ark-llm.env`, `ark preflight`, `systemctl status ark-llm.service`, model/binary path checks. Do **not** print RAG port-8000 curl commands for llm-only installs. If `$MODEL_PATH` is missing, tell the operator to place a GGUF before `sudo systemctl start ark-llm.service`.
+
+**`both`:** print RAG and LLM sections.
+
+### LLM baseline (`--no-start`, missing model)
+
+Observed on real llm-pi: `install.sh --role llm --install-services --no-start --yes` completes with **Validation: PASS (with warnings)**. Missing GGUF is a warning only unless `--require-model`. With `--no-start`, inactive `ark-llm.service` is expected (not a failure). Legacy installed env files using `ARK_LLAMACPP_*` keys remain parseable during the transition to `ARK_LLAMA_*` / `ARK_MODEL_*`.
+
+Example RAG checks (role `rag` or `both` only):
 
 ```bash
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
-sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark deploy preflight --generated-dir /srv/ark-pi/deploy/generated --role rag'
 /opt/ark-pi/.venv/bin/ark llm test --llm-backend mock
 curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/api/status
 ```
 
-For non-service installs, use non-sudo `set -a; . $GENERATED_DIR/ark-rag.env; set +a` before `ark preflight`.
+Example LLM checks (role `llm` or `both`):
 
-For `llm` or `both` with a real backend configured, also suggest `ark llm test --llm-backend openai-compatible --llm-base-url <url>` once the server is up.
+```bash
+sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
+sudo systemctl status ark-llm.service --no-pager
+ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/models/model.gguf
+```
+
+For non-service installs, use non-sudo `set -a; . $GENERATED_DIR/ark-<role>.env; set +a` before `ark preflight`.
 
 ## What the first installer should avoid
 
@@ -271,11 +295,21 @@ For `llm` or `both` with a real backend configured, also suggest `ark llm test -
 ## Open decisions
 
 - Which Linux distros to support first (Debian/Raspberry Pi OS vs others).
-- Whether llama.cpp build belongs in `install.sh` or a separate `llm` helper script.
+- Whether llama.cpp build belongs in `install.sh` or a separate `llm` helper script. **Resolved:** optional `--llama-build` in `install.sh`.
 - Dedicated service user vs install-as-current-user.
 - Backup strategy for existing `/etc/ark-pi/*.env` and systemd units.
 - Version pinning and checksum verification for the installer script itself.
 - Whether to ship `uninstall.sh` or document manual teardown only.
+
+## llama.cpp bootstrap (implemented)
+
+See roadmap §46. Summary:
+
+```bash
+sh install.sh --role llm --llama-build --install-services --yes
+```
+
+Model at `/srv/ark-pi/models/model.gguf` remains manual. Service start is deferred when the model is absent unless `--require-model` (which fails install/validation instead).
 
 ## Related docs
 

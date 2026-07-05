@@ -857,14 +857,80 @@ def deploy_render(
         "--force",
         help="Overwrite existing generated files",
     ),
+    prefix: str | None = typer.Option(
+        None,
+        "--prefix",
+        help="Install prefix for LLM WorkingDirectory (default: /opt/ark-pi)",
+    ),
+    llama_bin: str | None = typer.Option(
+        None,
+        "--llama-bin",
+        help="Path to llama-server binary for ark-llm.env",
+    ),
+    model_dir: str | None = typer.Option(
+        None,
+        "--model-dir",
+        help="Model directory for ark-llm.env",
+    ),
+    model_path: str | None = typer.Option(
+        None,
+        "--model-path",
+        help="GGUF model path for ark-llm.env",
+    ),
+    llama_host: str | None = typer.Option(
+        None,
+        "--llama-host",
+        help="Bind host for llama-server",
+    ),
+    llama_port: int | None = typer.Option(
+        None,
+        "--llama-port",
+        help="Bind port for llama-server",
+    ),
+    context_size: int | None = typer.Option(
+        None,
+        "--context-size",
+        help="Context size for llama-server",
+    ),
+    threads: int | None = typer.Option(
+        None,
+        "--threads",
+        help="Thread count for llama-server",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
 ) -> None:
     """Render ark-rag and ark-llm env/systemd templates for review (does not install)."""
+    llm_overrides: dict[str, object] = {}
+    if prefix is not None:
+        llm_overrides["prefix"] = prefix
+    if llama_bin is not None:
+        llm_overrides["llama_bin"] = llama_bin
+    if model_dir is not None:
+        llm_overrides["model_dir"] = model_dir
+    if model_path is not None:
+        llm_overrides["model_path"] = model_path
+    if llama_host is not None:
+        llm_overrides["llama_host"] = llama_host
+    if llama_port is not None:
+        llm_overrides["llama_port"] = llama_port
+    if context_size is not None:
+        llm_overrides["context_size"] = context_size
+    if threads is not None:
+        llm_overrides["threads"] = threads
+
+    llm_config = None
+    if llm_overrides:
+        base = deploy_templates.LlmRenderConfig()
+        llm_config = deploy_templates.LlmRenderConfig(
+            **{**base.__dict__, **llm_overrides}
+        )
+
     try:
         result = deploy_templates.render_deployment_templates(
             output_dir,
             role=role.value,
             force=force,
+            llm_config=llm_config,
         )
     except ValueError as exc:
         typer.echo(str(exc), err=True)

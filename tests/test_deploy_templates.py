@@ -7,6 +7,7 @@ from ark_pi.deploy.templates import (
     ARK_LLM_SERVICE,
     ARK_RAG_ENV,
     ARK_RAG_SERVICE,
+    LlmRenderConfig,
     render_deployment_templates,
     validate_output_dir,
 )
@@ -67,9 +68,26 @@ def test_rendered_ark_llm_service_references_llama_server_variables(tmp_path: Pa
     render_deployment_templates(tmp_path, role="llm")
 
     content = (tmp_path / "ark-llm.service").read_text(encoding="utf-8")
-    assert "${ARK_LLAMACPP_SERVER_BIN}" in content
-    assert "${ARK_LLAMACPP_MODEL_PATH}" in content
+    assert "${ARK_LLAMA_BIN}" in content
+    assert "${ARK_MODEL_PATH}" in content
+    assert "WorkingDirectory=" in content
     assert content == ARK_LLM_SERVICE
+
+
+def test_render_llm_with_custom_paths(tmp_path: Path) -> None:
+    config = LlmRenderConfig(
+        prefix="/custom/prefix",
+        llama_bin="/custom/prefix/vendor/llama.cpp/build/bin/llama-server",
+        model_dir="/custom/data/models",
+        model_path="/custom/data/models/custom.gguf",
+    )
+    render_deployment_templates(tmp_path, role="llm", force=True, llm_config=config)
+
+    env_content = (tmp_path / "ark-llm.env").read_text(encoding="utf-8")
+    assert "ARK_LLAMA_BIN=/custom/prefix/vendor/llama.cpp/build/bin/llama-server" in env_content
+    assert "ARK_MODEL_PATH=/custom/data/models/custom.gguf" in env_content
+    service_content = (tmp_path / "ark-llm.service").read_text(encoding="utf-8")
+    assert "WorkingDirectory=/custom/prefix" in service_content
 
 
 def test_existing_file_without_force_fails(tmp_path: Path) -> None:
