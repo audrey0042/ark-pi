@@ -75,6 +75,8 @@ Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.m
 
 **Raspberry Pi 5 / Debian 13 trixie (aarch64)** is the first observed RAG Pi target for this baseline.
 
+On a normal sudo-capable user account, default paths `/opt/ark-pi` and `/srv/ark-pi` are prepared with sudo when needed (`mkdir` + `chown` on those leaf directories only). git clone, venv creation, `pip install -e`, and `ark deploy render` still run as the invoking user — do not pipe the whole installer through `sudo`. A real rag-pi install hit `cannot create prefix under unwritable parent: /opt` after apt prerequisites succeeded; this ownership prep fixes that case.
+
 With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: OS packages (if enabled) + app bootstrap + render only.
 
 Use `--no-os-packages` or `--package-manager none` to skip apt and only verify required commands exist. Default `--package-manager auto` uses apt when `apt-get` is available.

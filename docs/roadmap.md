@@ -214,7 +214,7 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 `install.sh` at repo root.
 
-**App bootstrap + deploy render + optional service install + apt OS prerequisites + validation (done):** RAG Pi baseline packages on Debian-family hosts (`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`), clone, venv, pip, data dirs, `ark deploy render`, post-install validation, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`. First observed target: Raspberry Pi 5 / Debian 13 trixie.
+**App bootstrap + deploy render + optional service install + apt OS prerequisites + install path ownership + validation (done):** RAG Pi baseline packages on Debian-family hosts, sudo prep for default `/opt/ark-pi` and `/srv/ark-pi` when needed, clone, venv, pip, data dirs, `ark deploy render`, post-install validation, and with `--install-services` env/systemd copy + systemctl when `--service-root` is `/`. First observed target: Raspberry Pi 5 / Debian 13 trixie.
 
 ```bash
 sh install.sh --role rag --dry-run
@@ -224,7 +224,13 @@ sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-r
 
 **Future (not started):** llama.cpp, model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: OS packages + app bootstrap + render + service files + validation done; llm/network not started**
+**Status: OS packages + path ownership + app bootstrap + render + service files + validation done; llm/network not started**
+
+## 44. Install path ownership
+
+Prepare default `/opt/ark-pi` and `/srv/ark-pi` with sudo when needed: `mkdir -p` on the selected leaf directories, `chown` only those paths to the invoking user, then run git/venv/pip/render/validation unprivileged. Motivated by a real rag-pi failure after apt prerequisites (`cannot create prefix under unwritable parent: /opt`). Dry-run prints the ownership plan without mutations. Rejects unsafe exact paths (`/`, `/opt`, `/srv`, etc.).
+
+**Status: done**
 
 ## 43. Install validation
 

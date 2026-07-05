@@ -63,6 +63,14 @@ sh install.sh --role rag --no-os-packages --dry-run
 
 llama.cpp build, GGUF model placement, and network/WiFi setup remain manual on ark-llm and are documented separately below.
 
+On a sudo-capable user account, `install.sh` can prepare default `/opt/ark-pi` and `/srv/ark-pi` automatically (sudo `mkdir` + leaf `chown` to the invoking user). git, venv, pip, and deploy render still run unprivileged:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- --role rag --install-services --yes
+```
+
+Do not pipe the whole installer through `sudo` unless you want a root-owned checkout.
+
 ## First smoke (any machine)
 
 Run on a laptop or either Pi before systemd or llama.cpp.
@@ -166,10 +174,15 @@ Generated templates default to `openai-compatible` pointing at ark-llm. For firs
 Example layout (adjust to your disk mounts):
 
 ```bash
-# You run this; the CLI does not
+# You run this manually when not using install.sh path prep
 sudo mkdir -p /opt/ark-pi /srv/ark-pi/data/workspace /srv/ark-pi/data/sources
 sudo chown "$USER":"$USER" /opt/ark-pi /srv/ark-pi/data/workspace /srv/ark-pi/data/sources
+```
 
+Or use `install.sh --role rag --yes` to prepare `/opt/ark-pi` and `/srv/ark-pi` with sudo and bootstrap the app.
+
+```bash
+# Manual clone path (when not using install.sh)
 cd /opt/ark-pi
 git clone <your-ark-pi-repo-url> .
 python3.12 -m venv .venv

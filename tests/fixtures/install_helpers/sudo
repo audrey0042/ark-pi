@@ -5,4 +5,45 @@ if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
   echo "sudo $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
 fi
 
+if [ "$1" = "chown" ] && [ "${ARK_PI_INSTALL_CHOWN_FAIL:-0}" = "1" ]; then
+  echo "fake sudo: chown failed" >&2
+  exit 1
+fi
+
+if [ -n "${ARK_PI_INSTALL_TEST_SYSTEM_ROOT:-}" ]; then
+  case "$1" in
+    mkdir)
+      shift
+      _target=""
+      for _arg in "$@"; do
+        case "$_arg" in
+          -*) ;;
+          *) _target="$_arg" ;;
+        esac
+      done
+      if [ -n "$_target" ]; then
+        _parent=$(case "$_target" in */*) echo "${_target%/*}" ;; *) echo "." ;; esac)
+        if [ -e "$_parent" ] && [ ! -w "$_parent" ]; then
+          chmod u+w "$_parent" 2>/dev/null || true
+        fi
+      fi
+      exec /bin/mkdir "$@"
+      ;;
+    chown)
+      shift
+      _target=""
+      for _arg in "$@"; do
+        case "$_arg" in
+          -*) ;;
+          *) _target="$_arg" ;;
+        esac
+      done
+      if [ -n "$_target" ] && [ -e "$_target" ]; then
+        chmod -R u+rwx "$_target" 2>/dev/null || true
+      fi
+      exit 0
+      ;;
+  esac
+fi
+
 exec "$@"

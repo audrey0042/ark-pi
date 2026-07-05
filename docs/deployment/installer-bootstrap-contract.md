@@ -36,6 +36,29 @@ This baseline was derived from a real rag-pi inventory: **Raspberry Pi 5 / Debia
 
 Flags: `--no-os-packages` and `--package-manager none` skip apt and verify `git`, `python3`, `curl`, and `python3 -m venv` only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 
+## Install path ownership
+
+On a real rag-pi install (Raspberry Pi 5 / Debian 13 trixie), apt prerequisites succeeded but app bootstrap failed with:
+
+```text
+install.sh: cannot create prefix under unwritable parent: /opt
+```
+
+Default `--prefix /opt/ark-pi` and `--data-dir /srv/ark-pi` live under root-owned parents. For sudo-capable unprivileged users, `install.sh` now:
+
+1. Resolves the invoking user (`id -un` / `id -gn`, or `SUDO_USER` when run as root via sudo).
+2. Uses `sudo mkdir -p` on the selected leaf directories when needed.
+3. Uses `sudo chown` (or `chown -R` for existing unwritable reruns) on **only** `--prefix` and `--data-dir` — never on `/opt`, `/srv`, or other broad parents.
+4. Runs git, venv, pip, `ark deploy render`, and validation unprivileged afterward.
+
+**Sudo is used for:** apt packages (when enabled), install-path prep (when needed), and optional service-file install (`--install-services`).
+
+**Sudo is not used for:** git clone, venv, pip, deploy render, or validation.
+
+Do not run `curl | sudo sh` unless you intentionally want a root-owned install. Dry-run prints the ownership plan without calling sudo or creating directories.
+
+Unsafe install paths are rejected (`/`, `/opt`, `/srv`, etc. as exact paths). `/opt/ark-pi` and `/srv/ark-pi` are allowed.
+
 ## Target user experience
 
 Interactive one-liner (planner v0; pass `--role` when piping from curl):
@@ -162,13 +185,14 @@ Services (when `--install-services`, or service files exist under service root):
 7. Exit if `--dry-run`.
 8. Ask confirmation unless `--yes`.
 9. Install OS prerequisite packages via apt (when enabled; uses sudo when not root).
-10. Clone or update repo at `--prefix`.
-11. Create Python virtualenv and `pip install` Ark Pi.
-12. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
-13. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
-14. llama.cpp / model fetch / network (future).
-15. Run post-install validation unless `--no-validate`.
-16. Print validation commands.
+10. Prepare install-owned paths (`--prefix`, `--data-dir`) with sudo when needed; chown leaf dirs to invoking user.
+11. Clone or update repo at `--prefix`.
+12. Create Python virtualenv and `pip install` Ark Pi.
+13. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
+14. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
+15. llama.cpp / model fetch / network (future).
+16. Run post-install validation unless `--no-validate`.
+17. Print validation commands.
 
 ## Role-specific install notes
 
