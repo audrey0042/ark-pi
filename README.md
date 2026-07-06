@@ -50,7 +50,7 @@ Open http://127.0.0.1:8000/. Copy `.env.example` to `.env` if you want non-defau
 | `ark workspace list` | List workspace indexes |
 | `ark llm status` | Show LLM config (no network call) |
 | `ark llm test --llm-backend mock` | Hit the mock backend |
-| `ark deploy render --output-dir /tmp/ark-pi-deploy-render --force` | Write example env/systemd templates |
+| `ark deploy render --output-dir /path/to/deploy-render --force` | Write example env/systemd templates |
 
 Low-level chunk/index debugging: `ark ingest chunk`, `ark index`, `ark ask`. See [docs/architecture.md](docs/architecture.md).
 
@@ -75,7 +75,7 @@ Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.m
 
 **Raspberry Pi 5 / Debian 13 trixie (aarch64)** is the first observed RAG Pi target for this baseline.
 
-On a normal sudo-capable user account, default paths `/opt/ark-pi` and `/srv/ark-pi` are prepared with sudo when needed (`mkdir` + `chown` on those leaf directories only). git clone, venv creation, `pip install -e`, and `ark deploy render` still run as the invoking user — do not pipe the whole installer through `sudo`. A real rag-pi install hit `cannot create prefix under unwritable parent: /opt` after apt prerequisites succeeded; this ownership prep fixes that case.
+On a normal sudo-capable user account, default paths `/opt/ark-pi` (app source checkout) and `/srv/ark-pi` (runtime data, models, optional llama.cpp build) are prepared with sudo when needed (`mkdir` + `chown` on those leaf directories only). git clone, venv creation, `pip install -e`, and `ark deploy render` still run as the invoking user — do not pipe the whole installer through `sudo`. A real rag-pi install hit `cannot create prefix under unwritable parent: /opt` after apt prerequisites succeeded; this ownership prep fixes that case.
 
 With `--install-services`, it copies rendered env/systemd files (backs up existing, optional `systemctl` when `--service-root` is `/`). Without that flag: OS packages (if enabled) + app bootstrap + render only.
 
@@ -97,7 +97,7 @@ On a real **llm-pi** install, load `/etc/ark-pi/ark-llm.env` before manual check
 ```bash
 sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
 sudo systemctl status ark-llm.service --no-pager
-ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/vendor/llama.cpp/build/bin/llama-server
 ls -l /srv/ark-pi/models/model.gguf
 ```
 
@@ -122,25 +122,25 @@ sh install.sh --role rag --no-validate --dry-run
 sh install.sh --role rag --install-services --dry-run
 ```
 
-Validate an existing install:
+Validate an existing install (dev smoke example — replace paths with your test directories):
 
 ```bash
 sh install.sh --role rag --validate-only \
-  --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data \
-  --generated-dir /tmp/ark-pi-generated
+  --prefix /path/to/prefix --data-dir /path/to/data \
+  --generated-dir /path/to/generated
 ```
 
 App bootstrap:
 
 ```bash
-sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --yes
+sh install.sh --role rag --prefix /path/to/prefix --data-dir /path/to/data --yes
 ```
 
 Service files into a fake root (testing/review):
 
 ```bash
-sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data \
-  --service-root /tmp/ark-pi-service-root --install-services --yes
+sh install.sh --role rag --prefix /path/to/prefix --data-dir /path/to/data \
+  --service-root /path/to/service-root --install-services --yes
 ```
 
 Full two-Pi deployment (systemd, network) is still manual: [two-pi-manual.md](docs/deployment/two-pi-manual.md). Contract: [installer-bootstrap-contract.md](docs/deployment/installer-bootstrap-contract.md).
@@ -148,12 +148,12 @@ Full two-Pi deployment (systemd, network) is still manual: [two-pi-manual.md](do
 ## Deployment artifacts
 
 ```bash
-ark deploy render --output-dir /tmp/ark-pi-deploy-render --force
-ark deploy preflight --generated-dir /tmp/ark-pi-deploy-render
-ark deploy plan --generated-dir /tmp/ark-pi-deploy-render
-ark deploy bundle --generated-dir /tmp/ark-pi-deploy-render --output /tmp/ark-pi-deploy-bundle.zip --force
-ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
-ark deploy unpack-bundle --bundle /tmp/ark-pi-deploy-bundle.zip --staging-dir /tmp/ark-pi-deploy-staging --force
+ark deploy render --output-dir /path/to/deploy-render --force
+ark deploy preflight --generated-dir /path/to/deploy-render
+ark deploy plan --generated-dir /path/to/deploy-render
+ark deploy bundle --generated-dir /path/to/deploy-render --output /path/to/deploy-bundle.zip --force
+ark deploy verify-bundle --bundle /path/to/deploy-bundle.zip
+ark deploy unpack-bundle --bundle /path/to/deploy-bundle.zip --staging-dir /path/to/deploy-staging --force
 ```
 
 Outputs include `ark-rag.env`, `ark-rag.service`, `ark-llm.env`, `ark-llm.service`, plus preflight/plan reports.

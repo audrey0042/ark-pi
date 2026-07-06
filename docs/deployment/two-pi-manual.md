@@ -94,16 +94,16 @@ Open `http://127.0.0.1:8000/` and confirm the web UI loads. Stop the server with
 
 Render templates and zip them for review. **Does not install anything.**
 
-`/tmp` paths match the [README examples](../../README.md#deployment-artifacts). For local dev you can use `deploy/generated` instead.
+Neutral placeholder paths below (dev smoke example — not appliance defaults). Replace with directories on your machine, or use `deploy/generated` for local review.
 
 ```bash
 source .venv/bin/activate
 
-ark deploy render --output-dir /tmp/ark-pi-deploy-render --force
-ark deploy preflight --generated-dir /tmp/ark-pi-deploy-render
-ark deploy plan --generated-dir /tmp/ark-pi-deploy-render
-ark deploy bundle --generated-dir /tmp/ark-pi-deploy-render --output /tmp/ark-pi-deploy-bundle.zip --force
-ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
+ark deploy render --output-dir /path/to/deploy-render --force
+ark deploy preflight --generated-dir /path/to/deploy-render
+ark deploy plan --generated-dir /path/to/deploy-render
+ark deploy bundle --generated-dir /path/to/deploy-render --output /path/to/deploy-bundle.zip --force
+ark deploy verify-bundle --bundle /path/to/deploy-bundle.zip
 ```
 
 ### Generated files (review material)
@@ -124,13 +124,13 @@ Missing `/opt/ark-pi/.venv/bin/ark`, llama.cpp, or model paths on a laptop is no
 After verify passes, unpack to a staging dir and look at the files. Staging is not install.
 
 ```bash
-ark deploy verify-bundle --bundle /tmp/ark-pi-deploy-bundle.zip
+ark deploy verify-bundle --bundle /path/to/deploy-bundle.zip
 ark deploy unpack-bundle \
-  --bundle /tmp/ark-pi-deploy-bundle.zip \
-  --staging-dir /tmp/ark-pi-deploy-staging \
+  --bundle /path/to/deploy-bundle.zip \
+  --staging-dir /path/to/deploy-staging \
   --force
 
-find /tmp/ark-pi-deploy-staging -maxdepth 3 -type f -print | sort
+find /path/to/deploy-staging -maxdepth 3 -type f -print | sort
 ```
 
 Expected layout under staging:
@@ -235,11 +235,19 @@ curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh |
 
 Re-running the installer on an existing `/opt/ark-pi` git checkout fast-forwards to `origin/main` before `pip install -e`. Uncommitted local edits under `/opt/ark-pi` cause a clear failure instead of being overwritten.
 
-Default paths:
+If a previous failed `--llama-build` left only `vendor/` under `/opt/ark-pi` (old default location), inspect and remove it before rerunning:
 
-- Source: `/opt/ark-pi/vendor/llama.cpp`
-- Binary: `/opt/ark-pi/vendor/llama.cpp/build/bin/llama-server` (`ARK_LLAMA_BIN` in `ark-llm.env`)
-- Configure: `cmake -S /opt/ark-pi/vendor/llama.cpp -B /opt/ark-pi/vendor/llama.cpp/build` (installer passes `-S` explicitly)
+```bash
+cd /opt/ark-pi && git status --short
+# if only ?? vendor/ appears:
+rm -rf /opt/ark-pi/vendor
+```
+
+Default paths (`/opt/ark-pi` is app source only; llama.cpp build artifacts live under the data dir):
+
+- Source: `/srv/ark-pi/vendor/llama.cpp`
+- Binary: `/srv/ark-pi/vendor/llama.cpp/build/bin/llama-server` (`ARK_LLAMA_BIN` in `ark-llm.env`)
+- Configure: `cmake -S /srv/ark-pi/vendor/llama.cpp -B /srv/ark-pi/vendor/llama.cpp/build` (installer passes `-S` explicitly)
 
 You can still build manually under another path; ensure `ARK_LLAMA_BIN` in your env file matches.
 
@@ -348,7 +356,7 @@ Run on **ark-llm** (installed env is `/etc/ark-pi/ark-llm.env`):
 ```bash
 sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
 sudo systemctl status ark-llm.service --no-pager
-ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/vendor/llama.cpp/build/bin/llama-server
 ls -l /srv/ark-pi/models/model.gguf
 ```
 

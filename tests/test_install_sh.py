@@ -1533,7 +1533,7 @@ LEGACY_LLM_SERVICE_ENV = (
     "ARK_ROLE=llm\n"
     "ARK_LLM_HOST=0.0.0.0\n"
     "ARK_LLM_PORT=8080\n"
-    "ARK_LLAMACPP_SERVER_BIN=/opt/llama.cpp/llama-server\n"
+    "ARK_LLAMACPP_SERVER_BIN=/legacy/bin/llama-server\n"
     "ARK_LLAMACPP_MODEL_PATH=/srv/ark-pi/models/model.gguf\n"
 )
 LLM_GENERATED_ENV = "ARK_ROLE=llm\nARK_MODEL_PATH=/generated/llm/model.gguf\n"
@@ -2063,10 +2063,12 @@ def _llama_install_env(
     tmp_path: Path,
     prefix: Path,
     *,
+    data_dir: Path | None = None,
     command_log: Path | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    data = data_dir or tmp_path / "data"
+    llama_bin = data / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
     env = fake_helper_env(
         REPO_ROOT,
         extra={
@@ -2145,7 +2147,8 @@ def test_llm_dry_run_llama_build_shows_cmake_source_dir() -> None:
     result = run_install("--role", "llm", "--llama-build", "--dry-run")
     assert result.returncode == 0, result.stderr
     assert "cmake -S" in result.stdout
-    assert "vendor/llama.cpp" in result.stdout
+    assert "/srv/ark-pi/vendor/llama.cpp" in result.stdout
+    assert "/opt/ark-pi/vendor" not in result.stdout
 
 
 def test_llm_dry_run_llama_build_creates_nothing(tmp_path: Path) -> None:
@@ -2190,27 +2193,26 @@ def test_cmake_fixture_fails_without_source_dir() -> None:
 
 
 def test_llm_llama_build_configure_uses_explicit_source_dir(tmp_path: Path) -> None:
-    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
     result, _, log = _run_llm_install_with_command_log(tmp_path, llama_build=True)
     assert result.returncode == 0, result.stderr
-    llama_dir = prefix / "vendor" / "llama.cpp"
+    llama_dir = data_dir / "vendor" / "llama.cpp"
     assert f"-S {llama_dir}" in log.replace("\\", "/") or "-S" in log
     assert f"-B {llama_dir / 'build'}" in log.replace("\\", "/") or "-B" in log
 
 
 def test_llm_llama_build_creates_fake_llama_server_binary(tmp_path: Path) -> None:
-    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
     result, _, log = _run_llm_install_with_command_log(tmp_path, llama_build=True)
     assert result.returncode == 0, result.stderr
-    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    llama_bin = data_dir / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
     assert llama_bin.is_file()
     assert llama_bin.stat().st_mode & 0o111
     assert "git clone" in log
     assert "cmake -S" in log
     assert " -B " in log
     assert "cmake --build" in log
-    assert f"-S {prefix / 'vendor' / 'llama.cpp'}" in log.replace("\\", "/") or "-S" in log
-    data_dir = tmp_path / "data"
+    assert f"-S {data_dir / 'vendor' / 'llama.cpp'}" in log.replace("\\", "/") or "-S" in log
     env_content = data_dir / "deploy" / "generated" / "ark-llm.env"
     assert env_content.is_file()
     assert "ARK_LLAMA_BIN=" in env_content.read_text(encoding="utf-8")
@@ -2244,8 +2246,90 @@ def test_both_llama_build_renders_all_templates_and_binary(tmp_path: Path) -> No
         "ark-llm.service",
     ):
         assert (generated / name).is_file()
-    llama_bin = prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    llama_bin = data_dir / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
     assert llama_bin.is_file()
+
+
+def test_llm_llama_build_clones_under_data_dir(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    result, _, _ = _run_llm_install_with_command_log(tmp_path, llama_build=True)
+    assert result.returncode == 0, result.stderr
+    assert (data_dir / "vendor" / "llama.cpp").is_dir()
+
+
+def test_llm_llama_build_keeps_prefix_clean(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    result, _, _ = _run_llm_install_with_command_log(tmp_path, llama_build=True)
+    assert result.returncode == 0, result.stderr
+    assert not (prefix / "vendor").exists()
+
+
+def test_llm_generated_env_uses_data_dir_llama_bin(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    result, _, _ = _run_llm_install_with_command_log(tmp_path, llama_build=True)
+    assert result.returncode == 0, result.stderr
+    llama_bin = data_dir / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+    env_text = (data_dir / "deploy" / "generated" / "ark-llm.env").read_text(encoding="utf-8")
+    assert f"ARK_LLAMA_BIN={llama_bin}" in env_text
+
+
+def test_stale_prefix_vendor_dirty_check_is_clear(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    prefix.mkdir()
+    (prefix / ".git").mkdir()
+    (prefix / "vendor" / "llama.cpp").mkdir(parents=True)
+    env = fake_helper_env(REPO_ROOT, {"ARK_INSTALL_GIT_DIRTY": "1"})
+    result = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode != 0
+    combined = f"{result.stdout}\n{result.stderr}".lower()
+    assert "local changes" in combined
+    assert "stale" in combined or "earlier install" in combined
+    assert "rm -rf" in combined and "vendor" in combined
+
+
+def test_custom_llama_dir_under_prefix_still_works(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    custom_llama_dir = prefix / "vendor" / "llama.cpp"
+    env = _llama_install_env(
+        tmp_path,
+        prefix,
+        data_dir=data_dir,
+        extra_env={"ARK_PI_INSTALL_LLAMA_BIN": str(custom_llama_dir / "build" / "bin" / "llama-server")},
+    )
+    result = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--llama-dir",
+        str(custom_llama_dir),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert custom_llama_dir.is_dir()
+    assert (custom_llama_dir / "build" / "bin" / "llama-server").is_file()
 
 
 def test_llm_custom_paths_reflected_in_generated_templates(tmp_path: Path) -> None:
@@ -2372,10 +2456,11 @@ def _run_llm_system_root_service_install(
 ) -> tuple[subprocess.CompletedProcess[str], Path, str]:
     log_path = command_log or tmp_path / "commands.log"
     prefix = tmp_path / "system-root" / "opt" / "ark-pi"
+    data_dir = tmp_path / "system-root" / "srv" / "ark-pi"
     extra_env: dict[str, str] = {
         "ARK_INSTALL_LOCAL_LLAMA_REPO": str(LLAMA_STUB),
         "ARK_PI_INSTALL_LLAMA_BIN": str(
-            prefix / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
+            data_dir / "vendor" / "llama.cpp" / "build" / "bin" / "llama-server"
         ),
     }
     if systemctl_inactive:

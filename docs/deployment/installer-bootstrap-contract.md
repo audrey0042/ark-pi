@@ -9,7 +9,7 @@ Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual
 - `install.sh` at repo root. On apt-based systems, installs the RAG Pi OS prerequisite baseline before app bootstrap.
 - App bootstrap + `ark deploy render` into `--generated-dir`.
 - `--install-services` copies rendered env/systemd files under `--service-root` (default `/`). Backs up existing files. `systemctl daemon-reload/enable/start` when service root is `/` (respects `--no-enable`, `--no-start`).
-- `--service-root /tmp/...` for safe testing: files only, no systemctl.
+- `--service-root /path/to/service-root` for safe testing: files only, no systemctl.
 - `--no-os-packages` / `--package-manager none` skip apt and verify commands only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 - `--dry-run` prints the plan (including apt commands when enabled) with no mutations. Non-interactive install requires `--yes`.
 - Post-install validation runs after a successful real install unless `--no-validate`. `--validate-only` checks an existing install with no mutations.
@@ -21,8 +21,8 @@ Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual
 sh install.sh --role rag --dry-run
 sh install.sh --role rag --no-os-packages --dry-run
 sh install.sh --role rag --install-services --dry-run
-sh install.sh --role rag --service-root /tmp/ark-pi-service-root --install-services --yes
-sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
+sh install.sh --role rag --service-root /path/to/service-root --install-services --yes
+sh install.sh --role rag --validate-only --prefix /path/to/prefix --data-dir /path/to/data --generated-dir /path/to/generated
 ```
 
 ## OS prerequisites (apt)
@@ -245,7 +245,9 @@ Services (when `--install-services`, or service files exist under service root):
 ### `llm`
 
 - Create model directory under `--model-dir` (default `$DATA_DIR/models`); do not fetch a GGUF.
-- Optional `--llama-build`: clone llama.cpp to `$PREFIX/vendor/llama.cpp`, cmake configure with explicit source dir (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`), build `llama-server` at `$PREFIX/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Caller working directory is not reliable for CMake; always pass `-S`.
+- Optional `--llama-build`: clone llama.cpp to `$DATA_DIR/vendor/llama.cpp` (default), cmake configure with explicit source dir (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`), build `llama-server` at `$DATA_DIR/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Caller working directory is not reliable for CMake; always pass `-S`. `/opt/ark-pi` is app source only; do not clone llama.cpp there by default.
+- Custom `--llama-dir` under `$PREFIX` is supported but will dirty the app git checkout if build artifacts land there.
+- If a previous failed install left `$PREFIX/vendor/` (old default), the app dirty-check fails with a hint to inspect/remove it manually (`rm -rf $PREFIX/vendor`).
 - Render `ark-llm.env` and `ark-llm.service` with `ARK_LLAMA_BIN`, `ARK_MODEL_PATH`, host/port, context, threads.
 - With `--install-services`: if `model.gguf` is missing, install and enable `ark-llm.service` but skip `systemctl start` until the operator places the model.
 - Validation: missing model file is a **warning** by default; **`--require-model`** makes it a failure. Missing `llama-server` binary fails only when llama.cpp build is expected (`--llama-build` or existing source tree). `--validate-only` never clones, builds, or installs apt packages.
@@ -287,11 +289,25 @@ Example LLM checks (role `llm` or `both`):
 ```bash
 sudo sh -c 'set -a; . /etc/ark-pi/ark-llm.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
 sudo systemctl status ark-llm.service --no-pager
-ls -l /opt/ark-pi/vendor/llama.cpp/build/bin/llama-server
+ls -l /srv/ark-pi/vendor/llama.cpp/build/bin/llama-server
 ls -l /srv/ark-pi/models/model.gguf
 ```
 
 For non-service installs, use non-sudo `set -a; . $GENERATED_DIR/ark-<role>.env; set +a` before `ark preflight`.
+
+## Hardcoded path policy
+
+Installer, runtime code, deployment templates, and active docs must not bake in user-specific absolute paths (home directories, developer laptop checkouts, Pi-specific mount points) or legacy wrong defaults.
+
+**Appliance defaults (allowed):** `/opt/ark-pi` (app prefix), `/srv/ark-pi` (data dir), `/etc/ark-pi`, `/etc/systemd/system`.
+
+**Forbidden as active defaults:** user home paths, macOS home paths, Pi-specific mount points, legacy standalone llama install roots, llama.cpp clone under the app git checkout (`$PREFIX/vendor/…`), developer workspace paths, dev smoke `/tmp/…` paths in installer/runtime code.
+
+**llama.cpp default:** `$DATA_DIR/vendor/llama.cpp` (typically `/srv/ark-pi/vendor/llama.cpp`). Runtime/build artifacts belong under the data dir, not the app git checkout.
+
+**Regression guard:** `tests/test_hardcoded_paths.py` scans tracked installer/runtime/docs for forbidden patterns.
+
+Doc examples may use neutral placeholders such as `/path/to/prefix` for dev smoke commands; those are not runtime defaults.
 
 ## What the first installer should avoid
 
@@ -322,7 +338,7 @@ sh install.sh --role llm --llama-build --install-services --yes
 
 Model at `/srv/ark-pi/models/model.gguf` remains manual. Service start is deferred when the model is absent unless `--require-model` (which fails install/validation instead).
 
-**Real llm-pi `--llama-build` finding (hotfix):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Existing `/opt/ark-pi` checkouts were also left behind `origin/main` after fetch-only updates; reruns now fast-forward before reinstalling. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
+**Real llm-pi `--llama-build` finding (hotfix + path move):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Default llama.cpp paths now live under `$DATA_DIR/vendor/llama.cpp` so builds do not dirty `/opt/ark-pi`. Remove stale `$PREFIX/vendor/` from old installs before rerunning. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
 
 ## Related docs
 

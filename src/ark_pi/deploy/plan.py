@@ -213,7 +213,7 @@ def _llm_manual_commands() -> list[PlanManualCommand]:
         PlanManualCommand(
             id="create_llm_dirs",
             role="llm",
-            command="sudo mkdir -p /etc/ark-pi /srv/ark-pi/models /opt/llama.cpp",
+            command="sudo mkdir -p /etc/ark-pi /srv/ark-pi/models /srv/ark-pi/vendor",
             requires_sudo=True,
             performed=False,
             message="Create configuration, model, and llama.cpp directories.",

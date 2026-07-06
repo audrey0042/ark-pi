@@ -218,17 +218,23 @@ Export and restore indexes and config. Support rebuilding from source vs. restor
 
 ```bash
 sh install.sh --role rag --dry-run
-sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
-sh install.sh --role rag --install-services --service-root /tmp/ark-pi-service-root --yes
+sh install.sh --role rag --validate-only --prefix /path/to/prefix --data-dir /path/to/data --generated-dir /path/to/generated
+sh install.sh --role rag --install-services --service-root /path/to/service-root --yes
 ```
 
 **Future (not started):** model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
 **Status: OS packages + path ownership + app bootstrap + render + service files + validation done; optional llama.cpp build via `--llama-build`; model/network not automated**
 
+## 44. Move llama.cpp build out of app checkout + hardcoded path audit
+
+Default llama.cpp source/build paths moved to `$DATA_DIR/vendor/llama.cpp` (`/srv/ark-pi/vendor/llama.cpp`) so optional `--llama-build` does not dirty the `/opt/ark-pi` app git checkout. Strict prefix dirty-check retained; stale `$PREFIX/vendor/` from the old default gets a clearer failure hint. Hardcoded-path audit test blocks user-specific and legacy wrong defaults in installer/runtime/docs.
+
+**Status: done (hardware `--llama-build` rerun still pending)**
+
 ## 46. llama.cpp server bootstrap
 
-Optional llama.cpp source build in `install.sh` for role `llm` or `both`: clone to `$PREFIX/vendor/llama.cpp`, cmake build `llama-server`, render `ark-llm.env` / `ark-llm.service` with `ARK_LLAMA_*` paths, validate binary and model paths. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Missing GGUF is a validation warning by default; `--require-model` fails. Service install skips `systemctl start` for `ark-llm` when the model file is absent.
+Optional llama.cpp source build in `install.sh` for role `llm` or `both`: clone to `$DATA_DIR/vendor/llama.cpp`, cmake build `llama-server`, render `ark-llm.env` / `ark-llm.service` with `ARK_LLAMA_*` paths, validate binary and model paths. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Missing GGUF is a validation warning by default; `--require-model` fails. Service install skips `systemctl start` for `ark-llm` when the model file is absent.
 
 ```bash
 sh install.sh --role llm --llama-build --dry-run
@@ -240,9 +246,7 @@ Model acquisition, model selection, networking/AP, and RAG-to-LLM integration sm
 
 **Real llm-pi baseline (before `--llama-build`):** `--role llm --install-services --no-start --yes` completed with PASS (warnings) for missing model and inactive service. Legacy `ARK_LLAMACPP_*` env keys observed on installed baseline; new renders migrate to `ARK_LLAMA_*` / `ARK_MODEL_*`.
 
-**Real llm-pi `--llama-build` hotfix (pending hardware rerun):** first `--llama-build` run failed because CMake configure omitted `-S` (used caller cwd) and an existing `/opt/ark-pi` checkout stayed behind `origin/main` after fetch-only update. Hotfix: explicit `cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR` and safe fast-forward of existing app/llama.cpp git checkouts before reinstall/build.
-
-**Status: done (installer automation; model download still manual; real `--llama-build` rerun pending)**
+**Real llm-pi `--llama-build` finding (hotfix + path move):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Default llama.cpp paths now live under `$DATA_DIR/vendor/llama.cpp` so builds do not dirty `/opt/ark-pi`. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
 
 ## 45. Service env validation permissions
 
