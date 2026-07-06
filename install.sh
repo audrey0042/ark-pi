@@ -87,7 +87,7 @@ Options:
   --no-llama-build          Explicitly skip llama.cpp build
   --llama-repo URL          llama.cpp git repository
   --llama-ref REF           llama.cpp git ref (default: master)
-  --llama-dir PATH          llama.cpp source dir (default: $PREFIX/vendor/llama.cpp)
+  --llama-dir PATH          llama.cpp source dir (default: $DATA_DIR/vendor/llama.cpp)
   --llama-build-dir PATH    llama.cpp cmake build dir (default: $LLAMA_DIR/build)
   --llama-bin PATH          llama-server binary path (default: $LLAMA_BUILD_DIR/bin/llama-server)
   --model-dir PATH          Model directory (default: $DATA_DIR/models)
@@ -102,8 +102,8 @@ Examples:
   sh install.sh --role llm --install-services --llama-build --yes
   sh install.sh --role rag --no-os-packages --dry-run
   sh install.sh --role rag --install-services --dry-run
-  sh install.sh --role rag --validate-only --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --generated-dir /tmp/ark-pi-generated
-  sh install.sh --role rag --prefix /tmp/ark-pi-prefix --data-dir /tmp/ark-pi-data --service-root /tmp/ark-pi-service-root --install-services --yes
+  sh install.sh --role rag --validate-only --prefix /path/to/prefix --data-dir /path/to/data --generated-dir /path/to/generated
+  sh install.sh --role rag --prefix /path/to/prefix --data-dir /path/to/data --service-root /path/to/service-root --install-services --yes
 EOF
 }
 
@@ -404,7 +404,7 @@ resolve_llama_paths() {
     MODEL_PATH="$MODEL_DIR/model.gguf"
   fi
   if [ -z "$LLAMA_DIR" ]; then
-    LLAMA_DIR="$PREFIX/vendor/llama.cpp"
+    LLAMA_DIR="$DATA_DIR/vendor/llama.cpp"
   fi
   if [ -z "$LLAMA_BUILD_DIR" ]; then
     LLAMA_BUILD_DIR="$LLAMA_DIR/build"
@@ -707,6 +707,9 @@ install_path_needs_privileged_prep() {
   if [ "$_which" = "data-dir" ] && [ "${ARK_PI_INSTALL_TEST_UNWRITABLE_DATA_DIR_PARENT:-0}" = "1" ]; then
     return 0
   fi
+  if [ "$_which" = "llama-dir-parent" ] && [ "${ARK_PI_INSTALL_TEST_UNWRITABLE_LLAMA_DIR_PARENT:-0}" = "1" ]; then
+    return 0
+  fi
   _path=$(map_install_path "$_logical_path")
   if [ -e "$_path" ]; then
     if [ -w "$_path" ]; then
@@ -752,6 +755,14 @@ prepare_install_owned_paths() {
   prepare_install_owned_path "$DATA_DIR" "data dir" "data-dir"
 }
 
+prepare_llama_dir_parent() {
+  if ! should_build_llama; then
+    return 0
+  fi
+  _parent=$(path_dirname "$LLAMA_DIR")
+  prepare_install_owned_path "$_parent" "llama dir parent" "llama-dir-parent"
+}
+
 print_install_path_ownership_steps() {
   echo "Install path ownership steps:"
   _owner_label="(resolved before install)"
@@ -761,6 +772,9 @@ print_install_path_ownership_steps() {
   echo "  Install owner:       $_owner_label"
   _print_install_path_ownership_plan "$PREFIX" "prefix" "prefix"
   _print_install_path_ownership_plan "$DATA_DIR" "data dir" "data-dir"
+  if should_build_llama; then
+    _print_install_path_ownership_plan "$(path_dirname "$LLAMA_DIR")" "llama dir parent" "llama-dir-parent"
+  fi
 }
 
 _print_install_path_ownership_plan() {
@@ -1260,7 +1274,11 @@ ensure_clean_prefix() {
   fi
   if [ -d "$_pref/.git" ]; then
     if [ -n "$(git -C "$_pref" status --porcelain 2>/dev/null)" ]; then
-      die "prefix git checkout at $PREFIX has local changes; inspect $_pref and commit or stash before re-running install.sh"
+      _msg="prefix git checkout at $PREFIX has local changes; inspect $_pref and commit or stash before re-running install.sh"
+      if [ -d "$_pref/vendor" ]; then
+        _msg="$_msg If vendor/ is a stale llama.cpp clone from an earlier install (old default under $PREFIX), inspect it and remove manually (e.g. rm -rf $PREFIX/vendor)."
+      fi
+      die "$_msg"
     fi
     return 0
   fi
@@ -2291,6 +2309,7 @@ run_bootstrap() {
   install_os_prerequisites
   check_dependencies
   prepare_install_owned_paths
+  prepare_llama_dir_parent
   check_path_writable "$(map_install_path "$GENERATED_DIR")" "generated dir"
   ensure_clean_prefix
   clone_or_update_repo

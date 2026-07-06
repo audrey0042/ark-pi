@@ -11,7 +11,7 @@ DEFAULT_OUTPUT_DIR = Path("./deploy/generated")
 DEFAULT_LLM_PREFIX = "/opt/ark-pi"
 DEFAULT_LLM_MODEL_DIR = "/srv/ark-pi/models"
 DEFAULT_LLM_MODEL_PATH = f"{DEFAULT_LLM_MODEL_DIR}/model.gguf"
-DEFAULT_LLM_BIN = f"{DEFAULT_LLM_PREFIX}/vendor/llama.cpp/build/bin/llama-server"
+DEFAULT_LLM_BIN = "/srv/ark-pi/vendor/llama.cpp/build/bin/llama-server"
 
 FORBIDDEN_OUTPUT_ROOTS = (
     Path("/etc"),

@@ -69,7 +69,7 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
   _output=""
   _role=""
   _prefix="/opt/ark-pi"
-  _llama_bin="/opt/ark-pi/vendor/llama.cpp/build/bin/llama-server"
+  _llama_bin="/srv/ark-pi/vendor/llama.cpp/build/bin/llama-server"
   _model_dir="/srv/ark-pi/models"
   _model_path="/srv/ark-pi/models/model.gguf"
   shift 2
