@@ -33,7 +33,7 @@ Target: local docs + local inference, no cloud required.
 ## What runs on ark-llm
 
 - llama.cpp server only
-- GGUF model file storage
+- GGUF model file at `/srv/ark-pi/models/model.gguf` (appliance data under `$DATA_DIR/models`; optional installer download via `--download-model`)
 - Receives fully assembled prompts from ark-rag
 - Returns generated text responses
 

@@ -1,6 +1,6 @@
 # Installer bootstrap contract
 
-Design doc for `install.sh`. **Current script:** apt-based OS prerequisite install (Debian-family), app bootstrap, deploy template render, optional llama.cpp source build (`--llama-build`), optional service file install (`--install-services`), and post-install / validation-only checks. Model download and network/WiFi remain manual.
+Design doc for `install.sh`. **Current script:** apt-based OS prerequisite install (Debian-family), app bootstrap, deploy template render, optional llama.cpp source build (`--llama-build`), optional GGUF model download (`--download-model`), optional service file install (`--install-services`), and post-install / validation-only checks. Network/WiFi remain manual.
 
 Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual.md).
 
@@ -13,7 +13,8 @@ Manual deployment is the current complete path: [two-pi-manual.md](two-pi-manual
 - `--no-os-packages` / `--package-manager none` skip apt and verify commands only. `--package-manager auto` (default) uses apt when `apt-get` exists.
 - `--dry-run` prints the plan (including apt commands when enabled) with no mutations. Non-interactive install requires `--yes`.
 - Post-install validation runs after a successful real install unless `--no-validate`. `--validate-only` checks an existing install with no mutations.
-- Not implemented: model fetch, WiFi/network, auth, non-apt package managers.
+- Not implemented: WiFi/network, auth, non-apt package managers.
+- Optional: GGUF model download with `--download-model` (role `llm` or `both`; SHA256-verified; not default).
 - Optional: llama.cpp source build with `--llama-build` (role `llm` or `both` only).
 - [two-pi-manual.md](two-pi-manual.md) stays the full deployment guide.
 
@@ -130,6 +131,14 @@ Flags after the script name use `sh -s --` when piping from curl.
 | `--package-manager auto\|apt\|none` | Package manager mode (default: `auto`; `none` = skip OS packages) |
 | `--validate-only` | Validate an existing install; no host mutations |
 | `--no-validate` | Skip automatic post-install validation |
+| `--download-model` | Download a GGUF model during install (role `llm` or `both` only) |
+| `--model-preset NAME` | `qwen3-4b-q4km` (default with `--download-model`), `qwen3-8b-q4km`, or `custom` |
+| `--model-repo REPO_ID` | Hugging Face repo for `--model-preset custom` |
+| `--model-file FILENAME` | GGUF filename for `--model-preset custom` |
+| `--model-revision REV` | Hugging Face revision (default: `main`) |
+| `--model-url URL` | Custom download URL (overrides repo/file URL construction) |
+| `--model-sha256 SHA256` | Expected SHA256 for custom model or preset override |
+| `--force-model-download` | Replace existing model at `$MODEL_PATH` after verification |
 | `--help` | Usage and exit |
 
 Defaults should be boring and printed in the summary. All flags must work when passed as `sh -s -- FLAG ...` after a curl pipe.
@@ -143,7 +152,7 @@ Defaults should be boring and printed in the summary. All flags must work when p
 
 ## Dry-run behavior
 
-- Must not mutate the host (no packages, clones, copies, systemd, network, no `ark deploy render`).
+- Must not mutate the host (no packages, clones, copies, systemd, network, no `ark deploy render`, **no model download**).
 - Print planned actions: apt package install (when enabled), clone/update, venv, `pip install`, `ark deploy render`, data dirs. Future: env/service copies, enable/start.
 - Print detected OS, architecture, role, package manager, `--prefix`, `--data-dir`, `--generated-dir`, branch, repo.
 - Exit nonzero if the role or platform is unsupported.
@@ -192,7 +201,7 @@ Common: prefix exists, `$PREFIX/.venv/bin/ark` executable, `ark --help`, data di
 Role-specific (role-env-aware):
 
 - **rag:** workspace/sources dirs; verify role env is readable (`role_env_read`); `ark preflight` and `ark llm status` with rag env loaded (warning if LLM offline).
-- **llm:** model dir (required); GGUF file under models (warning only); `ark preflight` with llm env loaded.
+- **llm:** model dir (required); GGUF file under models (warning only); optional `model_preset` / `model_sha256` when preset or `--model-sha256` configured; `ark preflight` with llm env loaded.
 
 Services (when `--install-services`, or service files exist under service root): env files under `$SERVICE_ROOT/etc/ark-pi`, unit files under `$SERVICE_ROOT/etc/systemd/system`. When service root is `/`, read-only `systemctl is-enabled` / `is-active` (warnings only).
 
@@ -206,7 +215,9 @@ Services (when `--install-services`, or service files exist under service root):
 - Fail fast if not Linux or if the OS/distro is unsupported.
 - Always show the full plan before the first mutation.
 - Every `sudo` command is visible in the plan and in stdout.
-- Never download a GGUF model without explicit user action.
+- Never download a GGUF model without explicit `--download-model`.
+- Model downloads use pinned preset URLs and SHA256 verification; install atomically via temp file + `mv`.
+- `--dry-run` and `--validate-only` never contact Hugging Face or run model download curl.
 - Never overwrite existing env or unit files without backup or confirmation.
 - Never enable or start services without confirmation unless `--yes`.
 - Reruns should be idempotent where practical (skip existing venv, warn on existing units).
@@ -229,8 +240,9 @@ Services (when `--install-services`, or service files exist under service root):
 13. Run `ark deploy render --output-dir $GENERATED_DIR --role rag|llm|all --force` (implemented).
 14. With `--install-services`: copy env/systemd files to `$SERVICE_ROOT/etc/...`, backup existing, chmod, optional systemctl (implemented when service root is `/`).
 15. Optional llama.cpp clone/build when `--llama-build` (role `llm` or `both`).
-16. Run post-install validation unless `--no-validate`.
-17. Print validation commands.
+16. Optional GGUF model download when `--download-model` (role `llm` or `both`): curl to temp under `$MODEL_DIR`, SHA256 verify, atomic `mv` to `$MODEL_PATH`.
+17. Run post-install validation unless `--no-validate`.
+18. Print validation commands.
 
 ## Role-specific install notes
 
@@ -244,15 +256,17 @@ Services (when `--install-services`, or service files exist under service root):
 
 ### `llm`
 
-- Create model directory under `--model-dir` (default `$DATA_DIR/models`); do not fetch a GGUF.
+- Create model directory under `--model-dir` (default `$DATA_DIR/models`).
+- Optional `--download-model`: fetch a public Hugging Face GGUF into `$MODEL_PATH` (default `$MODEL_DIR/model.gguf`). Default preset `qwen3-4b-q4km` (Qwen3 4B Q4_K_M, ~2.5 GB, Apache-2.0, SHA256-pinned). Advanced preset `qwen3-8b-q4km` (Qwen3 8B Q4_K_M, ~5 GB, Apache-2.0). Custom preset requires `--model-url` or `--model-repo` + `--model-file`, plus `--model-sha256`. Skip download when existing file matches checksum; fail on mismatch unless `--force-model-download`. **`--role rag --download-model` is rejected.**
+- Manual fallback: copy any compatible GGUF to `/srv/ark-pi/models/model.gguf`.
 - Optional `--llama-build`: clone llama.cpp to `$DATA_DIR/vendor/llama.cpp` (default), cmake configure with explicit source dir (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`), build `llama-server` at `$DATA_DIR/vendor/llama.cpp/build/bin/llama-server`. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Caller working directory is not reliable for CMake; always pass `-S`. `/opt/ark-pi` is app source only; do not clone llama.cpp there by default.
 - Custom `--llama-dir` under `$PREFIX` is supported but will dirty the app git checkout if build artifacts land there.
 - If a previous failed install left `$PREFIX/vendor/` (old default), the app dirty-check fails with a hint to inspect/remove it manually (`rm -rf $PREFIX/vendor`).
 - Render `ark-llm.env` and `ark-llm.service` with `ARK_LLAMA_BIN`, `ARK_MODEL_PATH`, host/port, context, threads.
-- With `--install-services`: if `model.gguf` is missing, install and enable `ark-llm.service` but skip `systemctl start` until the operator places the model.
+- With `--install-services`: install and enable `ark-llm.service` but skip `systemctl start` until both `$MODEL_PATH` exists and `$LLAMA_BIN` is executable. Missing model prints placement guidance; missing binary prints `--llama-build` / `--llama-bin` guidance.
 - Validation: missing model file is a **warning** by default; **`--require-model`** makes it a failure. Missing `llama-server` binary fails only when llama.cpp build is expected (`--llama-build` or existing source tree). `--validate-only` never clones, builds, or installs apt packages.
 
-Flags: `--llama-build`, `--no-llama-build`, `--llama-repo`, `--llama-ref`, `--llama-dir`, `--llama-build-dir`, `--llama-bin`, `--model-dir`, `--model-path`, `--require-model`, `--build-jobs`. **`--role rag --llama-build` is rejected.**
+Flags: `--llama-build`, `--no-llama-build`, `--llama-repo`, `--llama-ref`, `--llama-dir`, `--llama-build-dir`, `--llama-bin`, `--model-dir`, `--model-path`, `--require-model`, `--download-model`, `--model-preset`, `--model-repo`, `--model-file`, `--model-revision`, `--model-url`, `--model-sha256`, `--force-model-download`, `--build-jobs`. **`--role rag --llama-build` and `--role rag --download-model` are rejected.**
 
 ### `both`
 
@@ -313,7 +327,6 @@ Doc examples may use neutral placeholders such as `/path/to/prefix` for dev smok
 
 - WiFi AP setup
 - Firewall rules
-- Automatic model download
 - Automatic Chroma/embedding setup
 - Authentication
 - Hardware-specific tuning
@@ -336,7 +349,17 @@ See roadmap §46. Summary:
 sh install.sh --role llm --llama-build --install-services --yes
 ```
 
-Model at `/srv/ark-pi/models/model.gguf` remains manual. Service start is deferred when the model is absent unless `--require-model` (which fails install/validation instead).
+## Model download bootstrap (implemented)
+
+See roadmap §47. Summary:
+
+```bash
+sh install.sh --role llm --download-model --dry-run
+sh install.sh --role llm --download-model --install-services --no-start --yes
+sh install.sh --role llm --validate-only --install-services --require-model
+```
+
+Known presets use pinned Hugging Face resolve URLs and SHA256 checksums. Downloads are atomic (temp file under `$MODEL_DIR`, verify, then `mv`). `--dry-run` and `--validate-only` never download. Custom presets require `--model-sha256`. Manual fallback: copy any compatible GGUF to `/srv/ark-pi/models/model.gguf`. **`systemctl start ark-llm.service` requires both the local GGUF and an executable `llama-server` binary** (`--llama-build` and `--download-model` are independent).
 
 **Real llm-pi `--llama-build` finding (hotfix + path move):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Default llama.cpp paths now live under `$DATA_DIR/vendor/llama.cpp` so builds do not dirty `/opt/ark-pi`. Remove stale `$PREFIX/vendor/` from old installs before rerunning. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
 
@@ -344,4 +367,5 @@ Model at `/srv/ark-pi/models/model.gguf` remains manual. Service start is deferr
 
 - [two-pi-manual.md](two-pi-manual.md): current manual path
 - [README deployment artifacts](../../README.md#deployment-artifacts): `ark deploy *` review commands
-- [roadmap §36](../roadmap.md#36-installer-bootstrap): app bootstrap + OS packages + render + service files + validation done; llm/network future
+- [roadmap §36](../roadmap.md#36-installer-bootstrap): app bootstrap + OS packages + render + service files + validation done
+- [roadmap §47](../roadmap.md#47-model-download-bootstrap): optional GGUF model download

@@ -2,7 +2,7 @@
 
 `ark deploy *` is dry-run only. It writes templates and zip bundles for review. Nothing here installs services or touches system dirs.
 
-Right now you deploy by hand or with [install.sh](../../install.sh): apt OS prerequisites, app bootstrap, optional `--llama-build` for llama.cpp, template render, env-aware validation, and `--install-services`. Model download and network setup remain manual. Full Pi setup: [roadmap §36](../roadmap.md#36-installer-bootstrap) and [§46](../roadmap.md#46-llamacpp-server-bootstrap).
+Right now you deploy by hand or with [install.sh](../../install.sh): apt OS prerequisites, app bootstrap, optional `--llama-build` for llama.cpp, optional `--download-model` for GGUF presets, template render, env-aware validation, and `--install-services`. Network setup remains manual. Full Pi setup: [roadmap §36](../roadmap.md#36-installer-bootstrap), [§46](../roadmap.md#46-llamacpp-server-bootstrap), and [§47](../roadmap.md#47-model-download-bootstrap).
 
 | Doc | |
 |-----|--|

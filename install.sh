@@ -3,7 +3,7 @@
 # Ark Pi install bootstrap (v5).
 # App bootstrap, deploy render, optional service install, apt OS prerequisites,
 # post-install validation and --validate-only mode.
-# Optional llama.cpp build via --llama-build; does not download models.
+# Optional llama.cpp build via --llama-build; optional GGUF download via --download-model.
 #
 
 set -u
@@ -39,6 +39,19 @@ LLAMA_BIN=""
 MODEL_DIR=""
 MODEL_PATH=""
 REQUIRE_MODEL=0
+DOWNLOAD_MODEL=0
+MODEL_PRESET=""
+MODEL_REPO=""
+MODEL_FILE=""
+MODEL_REVISION="main"
+MODEL_URL=""
+MODEL_SHA256=""
+FORCE_MODEL_DOWNLOAD=0
+MODEL_PRESET_LABEL=""
+MODEL_SIZE_LABEL=""
+MODEL_LICENSE_NOTE=""
+MODEL_DOWNLOAD_URL=""
+MODEL_EXPECTED_SHA256=""
 BUILD_JOBS=0
 
 INSTALL_OWNER=""
@@ -59,7 +72,8 @@ Bootstraps the Ark Pi app: clone/update repo, Python venv, pip install -e,
 role-specific data directories, deployment template render, and optional
 env/systemd file install.
 
-Does not download GGUF models. Optional llama.cpp source build with --llama-build.
+Does not download GGUF models unless --download-model is passed.
+Optional llama.cpp source build with --llama-build.
 On Debian-family hosts, can install apt prerequisites (git, python3, build tools, etc.).
 Llama build apt extras (cmake, libcurl4-openssl-dev, ccache) install only with --llama-build.
 
@@ -93,13 +107,23 @@ Options:
   --model-dir PATH          Model directory (default: $DATA_DIR/models)
   --model-path PATH         GGUF model path (default: $MODEL_DIR/model.gguf)
   --require-model           Treat missing model file as validation failure
+  --download-model          Download a GGUF model during install (role llm or both)
+  --model-preset NAME       Model preset: qwen3-4b-q4km, qwen3-8b-q4km, or custom
+                            (default with --download-model: qwen3-4b-q4km)
+  --model-repo REPO_ID      Hugging Face repo for --model-preset custom
+  --model-file FILENAME     GGUF filename for --model-preset custom
+  --model-revision REV      Hugging Face revision (default: main)
+  --model-url URL           Custom download URL (overrides repo/file URL)
+  --model-sha256 SHA256     Expected SHA256 for custom model or preset override
+  --force-model-download    Replace existing model after successful verification
   --build-jobs N            Parallel cmake build jobs (default: CPU count or 2)
   --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
   sh install.sh --role llm --llama-build --dry-run
-  sh install.sh --role llm --install-services --llama-build --yes
+  sh install.sh --role llm --download-model --dry-run
+  sh install.sh --role llm --install-services --llama-build --download-model --yes
   sh install.sh --role rag --no-os-packages --dry-run
   sh install.sh --role rag --install-services --dry-run
   sh install.sh --role rag --validate-only --prefix /path/to/prefix --data-dir /path/to/data --generated-dir /path/to/generated
@@ -193,6 +217,80 @@ parse_args() {
       --require-model)
         REQUIRE_MODEL=1
         shift
+        ;;
+      --download-model)
+        DOWNLOAD_MODEL=1
+        shift
+        ;;
+      --force-model-download)
+        FORCE_MODEL_DOWNLOAD=1
+        shift
+        ;;
+      --model-preset=*)
+        MODEL_PRESET="${1#*=}"
+        shift
+        ;;
+      --model-preset)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-preset"
+        fi
+        MODEL_PRESET="$2"
+        shift 2
+        ;;
+      --model-repo=*)
+        MODEL_REPO="${1#*=}"
+        shift
+        ;;
+      --model-repo)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-repo"
+        fi
+        MODEL_REPO="$2"
+        shift 2
+        ;;
+      --model-file=*)
+        MODEL_FILE="${1#*=}"
+        shift
+        ;;
+      --model-file)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-file"
+        fi
+        MODEL_FILE="$2"
+        shift 2
+        ;;
+      --model-revision=*)
+        MODEL_REVISION="${1#*=}"
+        shift
+        ;;
+      --model-revision)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-revision"
+        fi
+        MODEL_REVISION="$2"
+        shift 2
+        ;;
+      --model-url=*)
+        MODEL_URL="${1#*=}"
+        shift
+        ;;
+      --model-url)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-url"
+        fi
+        MODEL_URL="$2"
+        shift 2
+        ;;
+      --model-sha256=*)
+        MODEL_SHA256="${1#*=}"
+        shift
+        ;;
+      --model-sha256)
+        if [ $# -lt 2 ]; then
+          die "missing value for --model-sha256"
+        fi
+        MODEL_SHA256="$2"
+        shift 2
         ;;
       --llama-repo=*)
         LLAMA_REPO="${1#*=}"
@@ -451,6 +549,260 @@ validate_llama_flags() {
   fi
 }
 
+resolve_model_download_defaults() {
+  if [ "$DOWNLOAD_MODEL" -eq 1 ] && [ -z "$MODEL_PRESET" ]; then
+    MODEL_PRESET="qwen3-4b-q4km"
+  fi
+}
+
+resolve_model_metadata() {
+  resolve_model_download_defaults
+
+  MODEL_PRESET_LABEL=""
+  MODEL_SIZE_LABEL=""
+  MODEL_LICENSE_NOTE=""
+  MODEL_DOWNLOAD_URL=""
+  _preset_sha=""
+
+  case "$ROLE" in
+    llm|both) ;;
+    *) return 0 ;;
+  esac
+
+  if [ -z "$MODEL_PRESET" ] && [ "$DOWNLOAD_MODEL" -eq 0 ] \
+    && [ -z "$MODEL_SHA256" ] && [ -z "$MODEL_URL" ] \
+    && [ -z "$MODEL_REPO" ] && [ -z "$MODEL_FILE" ]; then
+    return 0
+  fi
+
+  if [ -z "$MODEL_PRESET" ] && { [ -n "$MODEL_URL" ] || [ -n "$MODEL_REPO" ] \
+    || [ -n "$MODEL_FILE" ]; }; then
+    MODEL_PRESET="custom"
+  fi
+
+  case "$MODEL_PRESET" in
+    qwen3-4b-q4km)
+      MODEL_PRESET_LABEL="Qwen3 4B Q4_K_M"
+      MODEL_REPO="Qwen/Qwen3-4B-GGUF"
+      MODEL_FILE="Qwen3-4B-Q4_K_M.gguf"
+      MODEL_REVISION="main"
+      MODEL_SIZE_LABEL="2.5 GB"
+      MODEL_LICENSE_NOTE="Apache-2.0 per Hugging Face model page"
+      MODEL_DOWNLOAD_URL="https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+      _preset_sha="7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+      ;;
+    qwen3-8b-q4km)
+      MODEL_PRESET_LABEL="Qwen3 8B Q4_K_M"
+      MODEL_REPO="Aldaris/Qwen3-8B-Q4_K_M-GGUF"
+      MODEL_FILE="qwen3-8b-q4_k_m.gguf"
+      MODEL_REVISION="main"
+      MODEL_SIZE_LABEL="5.03 GB"
+      MODEL_LICENSE_NOTE="Apache-2.0 per Hugging Face model page"
+      MODEL_DOWNLOAD_URL="https://huggingface.co/Aldaris/Qwen3-8B-Q4_K_M-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf"
+      _preset_sha="609eb8a9fb256d0e2be8b8d252b00bae7c0496fac5e9ccca190206abbb24e2e5"
+      ;;
+    custom)
+      MODEL_PRESET_LABEL="custom"
+      if [ -n "$MODEL_URL" ]; then
+        MODEL_DOWNLOAD_URL="$MODEL_URL"
+      elif [ -n "$MODEL_REPO" ] && [ -n "$MODEL_FILE" ]; then
+        MODEL_DOWNLOAD_URL="https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REVISION/$MODEL_FILE"
+      fi
+      ;;
+    "")
+      if [ -n "$MODEL_SHA256" ]; then
+        MODEL_EXPECTED_SHA256="$MODEL_SHA256"
+      fi
+      return 0
+      ;;
+    *)
+      die "unknown model preset: $MODEL_PRESET (use qwen3-4b-q4km, qwen3-8b-q4km, or custom)"
+      ;;
+  esac
+
+  if [ -n "$MODEL_SHA256" ]; then
+    MODEL_EXPECTED_SHA256="$MODEL_SHA256"
+  elif [ -n "$_preset_sha" ]; then
+    MODEL_EXPECTED_SHA256="$_preset_sha"
+  else
+    MODEL_EXPECTED_SHA256=""
+  fi
+}
+
+validate_download_model_flags() {
+  if [ "$DOWNLOAD_MODEL" -eq 1 ] && [ "$ROLE" = "rag" ]; then
+    die "--download-model requires role llm or both (not rag)"
+  fi
+
+  resolve_model_download_defaults
+
+  if [ -n "$MODEL_PRESET" ]; then
+    case "$MODEL_PRESET" in
+      qwen3-4b-q4km|qwen3-8b-q4km|custom) ;;
+      *)
+        die "unknown model preset: $MODEL_PRESET (use qwen3-4b-q4km, qwen3-8b-q4km, or custom)"
+        ;;
+    esac
+  fi
+
+  if [ "$MODEL_PRESET" = "custom" ] || [ -n "$MODEL_URL" ] \
+    || [ -n "$MODEL_REPO" ] || [ -n "$MODEL_FILE" ]; then
+    if [ -z "$MODEL_SHA256" ]; then
+      die "custom model requires --model-sha256"
+    fi
+    if [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+      if [ -z "$MODEL_URL" ]; then
+        if [ -z "$MODEL_REPO" ] || [ -z "$MODEL_FILE" ]; then
+          die "custom model requires --model-url or both --model-repo and --model-file"
+        fi
+      fi
+    fi
+  fi
+
+  if [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+    resolve_model_metadata
+    if [ -z "$MODEL_DOWNLOAD_URL" ]; then
+      die "model download URL could not be resolved"
+    fi
+    if [ -z "$MODEL_EXPECTED_SHA256" ]; then
+      die "model download requires a SHA256 checksum"
+    fi
+  fi
+}
+
+should_download_model() {
+  if [ "$DOWNLOAD_MODEL" -ne 1 ]; then
+    return 1
+  fi
+  if [ "$DRY_RUN" -eq 1 ] || [ "$VALIDATE_ONLY" -eq 1 ]; then
+    return 1
+  fi
+  case "$ROLE" in
+    llm|both) return 0 ;;
+  esac
+  return 1
+}
+
+should_verify_model_sha256() {
+  [ -n "$MODEL_EXPECTED_SHA256" ]
+}
+
+should_have_model_metadata() {
+  case "$ROLE" in
+    llm|both) ;;
+    *) return 1 ;;
+  esac
+  if [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+    return 0
+  fi
+  if [ -n "$MODEL_PRESET" ]; then
+    return 0
+  fi
+  if [ -n "$MODEL_SHA256" ]; then
+    return 0
+  fi
+  if [ -n "$MODEL_URL" ] || [ -n "$MODEL_REPO" ]; then
+    return 0
+  fi
+  return 1
+}
+
+verify_model_sha256() {
+  _file="$1"
+  if ! command_exists sha256sum; then
+    echo "install.sh: sha256sum not found" >&2
+    return 1
+  fi
+  if [ -z "$MODEL_EXPECTED_SHA256" ]; then
+    echo "install.sh: no expected SHA256 configured" >&2
+    return 1
+  fi
+  _actual=$(sha256sum "$_file" | awk '{print $1}')
+  _expected=$(printf '%s' "$MODEL_EXPECTED_SHA256" | tr '[:upper:]' '[:lower:]')
+  _actual=$(printf '%s' "$_actual" | tr '[:upper:]' '[:lower:]')
+  if [ "$_actual" != "$_expected" ]; then
+    echo "install.sh: SHA256 mismatch" >&2
+    echo "  expected: $_expected" >&2
+    echo "  actual:   $_actual" >&2
+    return 1
+  fi
+  return 0
+}
+
+existing_model_matches_expected_sha256() {
+  if ! model_path_exists; then
+    return 1
+  fi
+  if [ -z "$MODEL_EXPECTED_SHA256" ]; then
+    return 0
+  fi
+  verify_model_sha256 "$(map_install_path "$MODEL_PATH")"
+}
+
+print_model_download_notice() {
+  echo ""
+  echo "Downloading GGUF model (internet required):"
+  echo "  Preset:    ${MODEL_PRESET:-custom}"
+  echo "  Label:     $MODEL_PRESET_LABEL"
+  if [ -n "$MODEL_REPO" ]; then
+    echo "  Repo:      $MODEL_REPO"
+  fi
+  if [ -n "$MODEL_FILE" ]; then
+    echo "  File:      $MODEL_FILE"
+  fi
+  if [ -n "$MODEL_SIZE_LABEL" ]; then
+    echo "  Size:      $MODEL_SIZE_LABEL"
+  fi
+  if [ -n "$MODEL_LICENSE_NOTE" ]; then
+    echo "  License:   $MODEL_LICENSE_NOTE"
+  fi
+  echo "  Target:    $MODEL_PATH"
+  echo "  SHA256:    $MODEL_EXPECTED_SHA256"
+  echo "  URL:       $MODEL_DOWNLOAD_URL"
+  echo "  Offline operation starts after the model is local."
+}
+
+download_model_gguf() {
+  if ! should_download_model; then
+    return 0
+  fi
+
+  _model_dir=$(map_install_path "$MODEL_DIR")
+  _model_path=$(map_install_path "$MODEL_PATH")
+  mkdir -p "$_model_dir"
+
+  if existing_model_matches_expected_sha256; then
+    echo ""
+    echo "Model file already present and SHA256 matches; skipping download."
+    echo "  $MODEL_PATH"
+    return 0
+  fi
+
+  if model_path_exists; then
+    if [ "$FORCE_MODEL_DOWNLOAD" -eq 0 ]; then
+      die "model file exists at $MODEL_PATH but SHA256 does not match expected checksum (use --force-model-download to replace)"
+    fi
+    echo ""
+    echo "Replacing existing model at $MODEL_PATH (--force-model-download)"
+  fi
+
+  print_model_download_notice
+
+  _tmp="$_model_dir/model.gguf.tmp.$$"
+  if ! curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$_tmp" "$MODEL_DOWNLOAD_URL"; then
+    rm -f "$_tmp"
+    die "model download failed from $MODEL_DOWNLOAD_URL (Hugging Face/Xet redirected downloads may fail on poor networks)"
+  fi
+
+  if ! verify_model_sha256 "$_tmp"; then
+    rm -f "$_tmp"
+    die "downloaded model failed SHA256 verification"
+  fi
+
+  mv "$_tmp" "$_model_path"
+  echo "Model installed at $MODEL_PATH"
+}
+
 apt_packages_list() {
   _list="$APT_BASELINE_PACKAGES"
   if should_include_llama_apt_packages; then
@@ -474,14 +826,30 @@ model_path_exists() {
   [ -f "$(map_install_path "$MODEL_PATH")" ]
 }
 
+llama_server_binary_exists() {
+  _bin=$(map_install_path "$LLAMA_BIN")
+  [ -x "$_bin" ]
+}
+
 should_start_llm_service() {
-  model_path_exists
+  model_path_exists && llama_server_binary_exists
 }
 
 print_llm_start_deferred_message() {
   echo ""
-  echo "Skipping systemctl start for ark-llm.service (model file missing)."
-  echo "Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
+  if ! model_path_exists && ! llama_server_binary_exists; then
+    echo "Skipping systemctl start for ark-llm.service (model file and llama-server binary missing)."
+  elif ! model_path_exists; then
+    echo "Skipping systemctl start for ark-llm.service (model file missing)."
+  else
+    echo "Skipping systemctl start for ark-llm.service (llama-server binary missing)."
+  fi
+  if ! model_path_exists; then
+    echo "Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
+  fi
+  if ! llama_server_binary_exists; then
+    echo "Build llama.cpp with --llama-build or provide --llama-bin, then run: sudo systemctl start ark-llm.service"
+  fi
 }
 
 normalize_role_choice() {
@@ -1074,6 +1442,16 @@ print_common_summary() {
       echo "Model dir:             $MODEL_DIR"
       echo "Model path:            $MODEL_PATH"
       echo "Require model:         $([ "$REQUIRE_MODEL" -eq 1 ] && echo yes || echo no)"
+      echo "Download model:        $([ "$DOWNLOAD_MODEL" -eq 1 ] && echo yes || echo no)"
+      if [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+        echo "Model preset:          ${MODEL_PRESET:-qwen3-4b-q4km}"
+        if [ -n "$MODEL_PRESET_LABEL" ]; then
+          echo "Model label:           $MODEL_PRESET_LABEL"
+        fi
+        if [ -n "$MODEL_EXPECTED_SHA256" ]; then
+          echo "Model SHA256:          $MODEL_EXPECTED_SHA256"
+        fi
+      fi
       ;;
   esac
   echo ""
@@ -1120,6 +1498,49 @@ print_llama_build_steps() {
   echo "  Verify $LLAMA_BIN exists and is executable"
 }
 
+print_model_download_steps() {
+  case "$ROLE" in
+    llm|both) ;;
+    *) return 0 ;;
+  esac
+  echo ""
+  if [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+    echo "Model download steps:"
+    echo "  Preset:    ${MODEL_PRESET:-qwen3-4b-q4km}"
+    if [ -n "$MODEL_PRESET_LABEL" ]; then
+      echo "  Label:     $MODEL_PRESET_LABEL"
+    fi
+    if [ -n "$MODEL_REPO" ]; then
+      echo "  Repo:      $MODEL_REPO"
+    fi
+    if [ -n "$MODEL_FILE" ]; then
+      echo "  File:      $MODEL_FILE"
+    fi
+    if [ -n "$MODEL_SIZE_LABEL" ]; then
+      echo "  Size:      $MODEL_SIZE_LABEL"
+    fi
+    if [ -n "$MODEL_LICENSE_NOTE" ]; then
+      echo "  License:   $MODEL_LICENSE_NOTE"
+    fi
+    echo "  Target:    $MODEL_PATH"
+    if [ -n "$MODEL_EXPECTED_SHA256" ]; then
+      echo "  SHA256:    $MODEL_EXPECTED_SHA256"
+    fi
+    if [ -n "$MODEL_DOWNLOAD_URL" ]; then
+      echo "  URL:       $MODEL_DOWNLOAD_URL"
+    fi
+    if [ "$MODEL_PRESET" = "qwen3-8b-q4km" ]; then
+      echo "  Note:      advanced preset; may be tight on Raspberry Pi 5 8GB"
+    fi
+    echo "  Internet is required for download; offline operation starts after model is local."
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  Dry run: no download will occur."
+    fi
+  else
+    echo "Model placement: manual (copy a compatible GGUF to $MODEL_PATH or use --download-model)"
+  fi
+}
+
 print_app_bootstrap_steps() {
   echo "App bootstrap steps:"
   echo "  1. Clone or update Ark Pi at $PREFIX from $REPO (branch $BRANCH)."
@@ -1131,6 +1552,7 @@ print_app_bootstrap_steps() {
   done
   echo "  5. Verify $PREFIX/.venv/bin/ark --help"
   print_llama_build_steps
+  print_model_download_steps
   echo "  6. Run $(render_deploy_command)"
 }
 
@@ -1157,9 +1579,14 @@ print_service_install_steps() {
     fi
     if [ "$NO_START" -eq 0 ]; then
       for _unit in $(service_unit_names_for_role); do
-        if [ "$_unit" = "ark-llm.service" ] && ! model_path_exists; then
-          echo "  Skip systemctl start $_unit (model file missing at $MODEL_PATH)"
-          echo "  Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
+        if [ "$_unit" = "ark-llm.service" ] && ! should_start_llm_service; then
+          if ! model_path_exists; then
+            echo "  Skip systemctl start $_unit (model file missing at $MODEL_PATH)"
+            echo "  Place a GGUF at $MODEL_PATH, then run: sudo systemctl start ark-llm.service"
+          elif ! llama_server_binary_exists; then
+            echo "  Skip systemctl start $_unit (llama-server binary missing at $LLAMA_BIN)"
+            echo "  Build llama.cpp with --llama-build or provide --llama-bin, then run: sudo systemctl start ark-llm.service"
+          fi
         else
           echo "  systemctl start $_unit"
         fi
@@ -1180,7 +1607,9 @@ print_future_service_steps() {
         ;;
     esac
   fi
-  echo "  - Download or place GGUF model files"
+  if [ "$DOWNLOAD_MODEL" -eq 0 ]; then
+    echo "  - Download or place GGUF model files"
+  fi
   echo "  - Configure WiFi AP or network"
   if [ "$INSTALL_SERVICES" -eq 0 ]; then
     echo "  - Install env/systemd files (use --install-services to opt in)"
@@ -1232,6 +1661,11 @@ check_dependencies() {
   if ! python3 -m venv --help >/dev/null 2>&1; then
     manual_package_guidance
     die "python3 -m venv is not available; install python3-venv"
+  fi
+  if should_download_model || should_verify_model_sha256; then
+    if ! command_exists sha256sum; then
+      die "sha256sum not found (required for model download/verification)"
+    fi
   fi
 }
 
@@ -2020,6 +2454,28 @@ run_validation_checks() {
       else
         record_validation_check model_file warning "model file missing: $MODEL_PATH (manual step)"
       fi
+      if [ -n "$MODEL_PRESET" ] || [ "$DOWNLOAD_MODEL" -eq 1 ]; then
+        if [ -n "$MODEL_DOWNLOAD_URL" ] && [ -n "$MODEL_EXPECTED_SHA256" ]; then
+          record_validation_check model_preset pass "model preset resolved: ${MODEL_PRESET:-custom}"
+        elif [ "$MODEL_PRESET" = "custom" ] && [ -n "$MODEL_EXPECTED_SHA256" ]; then
+          record_validation_check model_preset pass "custom model metadata resolved"
+        else
+          record_validation_check model_preset fail "model preset metadata incomplete"
+        fi
+      fi
+      if should_verify_model_sha256; then
+        if [ -f "$_model" ]; then
+          if verify_model_sha256 "$_model"; then
+            record_validation_check model_sha256 pass "model SHA256 matches expected checksum"
+          else
+            record_validation_check model_sha256 fail "model SHA256 does not match expected checksum"
+          fi
+        elif [ "$REQUIRE_MODEL" -eq 1 ]; then
+          record_validation_check model_sha256 warning "model file missing; SHA256 check skipped"
+        else
+          record_validation_check model_sha256 warning "model file missing; SHA256 check skipped"
+        fi
+      fi
       if [ -x "$_ark" ]; then
         if run_ark_with_role_env llm "$_ark" preflight; then
           record_validation_check llm_preflight pass "ark preflight succeeded using $VALIDATION_RESOLVED_ENV_FILE"
@@ -2099,6 +2555,9 @@ print_validation_plan_steps() {
     llm|both)
       echo "  Check model dir, llama-server binary (when expected), model file, and role-env-aware ark preflight"
       echo "  Missing model file is a warning unless --require-model"
+      if should_have_model_metadata; then
+        echo "  Verify model SHA256 when preset or --model-sha256 is configured"
+      fi
       ;;
   esac
   if should_build_llama; then
@@ -2316,6 +2775,7 @@ run_bootstrap() {
   create_venv_and_install
   build_llama_cpp
   create_data_dirs
+  download_model_gguf
   run_deploy_render
   install_service_files
   if [ "$INSTALL_SERVICES" -eq 1 ]; then
@@ -2354,7 +2814,9 @@ main() {
   fi
   validate_role
   validate_llama_flags
+  validate_download_model_flags
   resolve_llama_paths
+  resolve_model_metadata
   validate_generated_dir
   validate_service_root
   if [ "$VALIDATE_ONLY" -eq 0 ]; then
