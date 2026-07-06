@@ -222,9 +222,9 @@ sh install.sh --role rag --validate-only --prefix /path/to/prefix --data-dir /pa
 sh install.sh --role rag --install-services --service-root /path/to/service-root --yes
 ```
 
-**Future (not started):** model download, WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
+**Future (not started):** WiFi/network, non-apt distros. Contract: [docs/deployment/installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
-**Status: OS packages + path ownership + app bootstrap + render + service files + validation done; optional llama.cpp build via `--llama-build`; model/network not automated**
+**Status: OS packages + path ownership + app bootstrap + render + service files + validation done; optional llama.cpp build via `--llama-build`; optional model download via `--download-model`; network not automated**
 
 ## 44. Move llama.cpp build out of app checkout + hardcoded path audit
 
@@ -234,7 +234,7 @@ Default llama.cpp source/build paths moved to `$DATA_DIR/vendor/llama.cpp` (`/sr
 
 ## 46. llama.cpp server bootstrap
 
-Optional llama.cpp source build in `install.sh` for role `llm` or `both`: clone to `$DATA_DIR/vendor/llama.cpp`, cmake build `llama-server`, render `ark-llm.env` / `ark-llm.service` with `ARK_LLAMA_*` paths, validate binary and model paths. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Missing GGUF is a validation warning by default; `--require-model` fails. Service install skips `systemctl start` for `ark-llm` when the model file is absent.
+Optional llama.cpp source build in `install.sh` for role `llm` or `both`: clone to `$DATA_DIR/vendor/llama.cpp`, cmake build `llama-server`, render `ark-llm.env` / `ark-llm.service` with `ARK_LLAMA_*` paths, validate binary and model paths. Apt extras (`cmake`, `libcurl4-openssl-dev`, `ccache`) install only with `--llama-build`. Missing GGUF is a validation warning by default; `--require-model` fails. Service install skips `systemctl start` for `ark-llm` when the model file or `llama-server` binary is absent.
 
 ```bash
 sh install.sh --role llm --llama-build --dry-run
@@ -242,11 +242,29 @@ sh install.sh --role llm --llama-build --install-services --yes
 sh install.sh --role llm --validate-only --install-services
 ```
 
-Model acquisition, model selection, networking/AP, and RAG-to-LLM integration smoke on real Pi hardware remain follow-up work.
+Model acquisition, model selection benchmarking, networking/AP, and RAG-to-LLM integration smoke on real Pi hardware remain follow-up work.
 
 **Real llm-pi baseline (before `--llama-build`):** `--role llm --install-services --no-start --yes` completed with PASS (warnings) for missing model and inactive service. Legacy `ARK_LLAMACPP_*` env keys observed on installed baseline; new renders migrate to `ARK_LLAMA_*` / `ARK_MODEL_*`.
 
 **Real llm-pi `--llama-build` finding (hotfix + path move):** CMake must configure with an explicit llama.cpp source directory (`cmake -S $LLAMA_DIR -B $LLAMA_BUILD_DIR`). Without `-S`, CMake used the caller working directory and failed on real hardware. Default llama.cpp paths now live under `$DATA_DIR/vendor/llama.cpp` so builds do not dirty `/opt/ark-pi`. Real-hardware llama.cpp build success is pending Audrey’s post-merge rerun.
+
+## 47. Model download bootstrap
+
+Optional GGUF model acquisition in `install.sh` for role `llm` or `both` with `--download-model` (not default). Default preset `qwen3-4b-q4km` (Qwen3 4B Q4_K_M, ~2.5 GB, Apache-2.0, SHA256-pinned). Advanced preset `qwen3-8b-q4km` (Qwen3 8B Q4_K_M, ~5 GB, Apache-2.0). Custom preset requires `--model-url` or `--model-repo` + `--model-file`, plus `--model-sha256`.
+
+```bash
+sh install.sh --role llm --download-model --dry-run
+sh install.sh --role llm --download-model --install-services --no-start --yes
+sh install.sh --role llm --validate-only --install-services --require-model
+```
+
+Downloads use `curl`, verify SHA256 with `sha256sum`, and install atomically to `$DATA_DIR/models/model.gguf`. Skip when existing file matches checksum; fail on mismatch unless `--force-model-download`. `--dry-run` and `--validate-only` never download. **`--role rag --download-model` is rejected.**
+
+Manual fallback remains: copy any compatible GGUF to `/srv/ark-pi/models/model.gguf`.
+
+**Status: done (real llm-pi download smoke pending Audrey post-merge)**
+
+Future: RAG-to-LLM end-to-end prompt smoke, networking/AP mode, model benchmarking.
 
 ## 45. Service env validation permissions
 

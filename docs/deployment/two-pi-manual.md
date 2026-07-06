@@ -251,11 +251,34 @@ Default paths (`/opt/ark-pi` is app source only; llama.cpp build artifacts live 
 
 You can still build manually under another path; ensure `ARK_LLAMA_BIN` in your env file matches.
 
-### 3. Place a GGUF model
+### 3. Place or download a GGUF model
 
-Copy a GGUF model to the configured path (generated default: `/srv/ark-pi/models/model.gguf`). Models stay out of git. The installer does **not** download models.
+**Option A — installer download (opt-in):**
 
-If you install services before the model exists, `ark-llm.service` is enabled but not started. After placing the file:
+```bash
+# Plan first (no network)
+sh install.sh --role llm --download-model --dry-run
+
+# Build llama.cpp, download model, install services (common full path)
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | \
+  sh -s -- --role llm --install-services --llama-build --download-model --no-start --yes
+
+# Download only (separate from llama build)
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | \
+  sh -s -- --role llm --install-services --download-model --no-start --yes
+
+# Advanced 8B preset (explicit; ~5 GB; may be tight on Pi 5 8GB)
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | \
+  sh -s -- --role llm --install-services --download-model --model-preset qwen3-8b-q4km --no-start --yes
+```
+
+Downloads verify SHA256 and install atomically to `/srv/ark-pi/models/model.gguf`. Default installs do **not** download unless `--download-model` is passed. Downloading a model does not build `llama-server`; `--llama-build` and `--download-model` remain independent.
+
+**Option B — manual placement:**
+
+Copy a GGUF model to the configured path (generated default: `/srv/ark-pi/models/model.gguf`). Models stay out of git.
+
+`ark-llm.service` starts only when **both** the GGUF file and an executable `llama-server` binary exist. If you install services before both are ready, the unit is enabled but not started. After the model **and** binary are present:
 
 ```bash
 sudo systemctl start ark-llm.service

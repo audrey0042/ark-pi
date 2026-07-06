@@ -1,0 +1,52 @@
+#!/bin/sh
+# Fake curl for install.sh model download tests.
+
+if [ -n "${ARK_PI_INSTALL_COMMAND_LOG:-}" ]; then
+  echo "curl $*" >> "$ARK_PI_INSTALL_COMMAND_LOG"
+fi
+
+if [ "${ARK_PI_INSTALL_CURL_FAIL:-0}" = "1" ]; then
+  echo "fake curl: download failed" >&2
+  exit 1
+fi
+
+_output=""
+_url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o)
+      if [ $# -lt 2 ]; then
+        echo "fake curl: missing -o argument" >&2
+        exit 1
+      fi
+      _output="$2"
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      _url="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$_output" ]; then
+  echo "fake curl: -o output path required" >&2
+  exit 1
+fi
+
+_source="${ARK_PI_INSTALL_CURL_SOURCE:-}"
+if [ -z "$_source" ]; then
+  echo "fake curl: ARK_PI_INSTALL_CURL_SOURCE not set" >&2
+  exit 1
+fi
+if [ ! -f "$_source" ]; then
+  echo "fake curl: source file missing: $_source" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$_output")"
+cp "$_source" "$_output"
+exit 0

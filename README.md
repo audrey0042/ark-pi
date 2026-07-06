@@ -103,15 +103,36 @@ ls -l /srv/ark-pi/models/model.gguf
 
 Baseline LLM install (`--role llm --install-services --no-start --yes`) completes with **PASS (with warnings)** when the GGUF model is not present yet. Missing model is a warning, not a failure. With `--no-start`, an inactive `ark-llm.service` is expected.
 
-Does **not** download GGUF models. Optional llama.cpp source build with `--llama-build` (role `llm` or `both`). Does **not** configure network or WiFi AP.
+Optional GGUF download with `--download-model` (role `llm` or `both` only). Default preset: **Qwen3 4B Q4_K_M** (`qwen3-4b-q4km`, ~2.5 GB, Apache-2.0). Advanced preset: **Qwen3 8B Q4_K_M** (`qwen3-8b-q4km`, ~5 GB, Apache-2.0; may be tight on Pi 5 8GB). Downloads verify SHA256 and install atomically to `/srv/ark-pi/models/model.gguf`. Without `--download-model`, place any compatible GGUF there manually.
 
-LLM Pi example (build llama.cpp, install services; model file remains manual):
+Does **not** download models unless `--download-model` is passed. Optional llama.cpp source build with `--llama-build` (role `llm` or `both`). Does **not** configure network or WiFi AP.
+
+LLM Pi examples:
 
 ```bash
-sh install.sh --role llm --llama-build --install-services --yes
+# Plan default model download (no network in dry-run)
+sh install.sh --role llm --download-model --dry-run
+
+# Build llama.cpp, download default model, install services
+sh install.sh --role llm --llama-build --download-model --install-services --yes
+
+# Advanced 8B preset (explicit)
+sh install.sh --role llm --download-model --model-preset qwen3-8b-q4km --install-services --yes
 ```
 
-If the model file is missing at install time, `ark-llm.service` is installed and enabled but not started. Place `model.gguf` at `/srv/ark-pi/models/model.gguf`, then run `sudo systemctl start ark-llm.service`.
+If the model file is missing at install time, `ark-llm.service` is installed and enabled but not started. Starting `ark-llm.service` requires **both** a local GGUF at `/srv/ark-pi/models/model.gguf` **and** an executable `llama-server` binary (build with `--llama-build` or set `--llama-bin`). Model download and llama.cpp build are independent steps.
+
+Common full LLM install:
+
+```bash
+sh install.sh --role llm --install-services --llama-build --download-model --yes
+```
+
+Manual fallback: copy a GGUF to `/srv/ark-pi/models/model.gguf`, ensure `llama-server` exists at the configured `ARK_LLAMA_BIN` path, then run:
+
+```bash
+sudo systemctl start ark-llm.service
+```
 
 Plan only (includes apt package plan on Debian-family systems):
 
@@ -176,9 +197,9 @@ More: [docs/deployment/README.md](docs/deployment/README.md).
 ## Not done yet
 
 - WiFi AP
-- Service install to real `/etc` via install.sh needs `--install-services` and root/sudo; model download/network still manual
-- llama.cpp optional via `install.sh --llama-build` (does not download models)
-- Model download/management
+- Service install to real `/etc` via install.sh needs `--install-services` and root/sudo; network setup still manual
+- llama.cpp optional via `install.sh --llama-build`
+- Model download optional via `install.sh --download-model` (Qwen3 GGUF presets; not default)
 - Auth
 - Chroma/semantic search as default production path
 - End-to-end test on real Pi hardware in this repo

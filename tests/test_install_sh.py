@@ -12,6 +12,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
 FAKE_BIN = REPO_ROOT / "tests" / "fixtures" / "install_helpers"
+TINY_MODEL = REPO_ROOT / "tests" / "fixtures" / "models" / "tiny-q4km.gguf"
+TINY_MODEL_SHA = "370df1c551a1dabfdbce83ed2231e9022e9c0bb10d5df3ac0d96b820389d24f4"
+TINY_WRONG_MODEL = REPO_ROOT / "tests" / "fixtures" / "models" / "tiny-wrong.gguf"
+TINY_WRONG_SHA = "317cb23cdee1be02c067386916817e9874308daacb9387d371c9ecca377c38ed"
 
 EXPECTED_LLM_APT_PACKAGES = ("cmake", "libcurl4-openssl-dev", "ccache")
 LLAMA_STUB = REPO_ROOT / "tests" / "fixtures" / "llama.cpp_stub"
@@ -109,6 +113,7 @@ def test_help_exits_zero_and_prints_usage() -> None:
     assert "--no-validate" in result.stdout
     assert "--llama-build" in result.stdout
     assert "--require-model" in result.stdout
+    assert "--download-model" in result.stdout
 
 
 @pytest.mark.parametrize("role", ["rag", "llm", "both"])
@@ -2642,3 +2647,513 @@ def test_legacy_llamacpp_env_accepted_by_validation(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "[pass] llm_preflight" in result.stdout
     assert "role_env_unknown_keys" not in result.stdout
+
+
+TINY_CUSTOM_DOWNLOAD_ARGS = [
+    "--download-model",
+    "--model-preset",
+    "custom",
+    "--model-url",
+    "https://example.invalid/models/tiny-q4km.gguf",
+    "--model-sha256",
+    TINY_MODEL_SHA,
+]
+
+
+def _model_download_install_env(
+    tmp_path: Path,
+    prefix: Path,
+    *,
+    data_dir: Path | None = None,
+    curl_source: Path | None = None,
+    command_log: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    env = fake_helper_env(
+        REPO_ROOT,
+        extra={
+            "ARK_PI_INSTALL_CURL_SOURCE": str(curl_source or TINY_MODEL),
+            **(extra_env or {}),
+        },
+        command_log=command_log,
+    )
+    return env
+
+
+def _run_model_download_install(
+    tmp_path: Path,
+    *,
+    install_services: bool = False,
+    service_root: Path | None = None,
+    no_start: bool = False,
+    require_model: bool = False,
+    curl_source: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+    extra_args: list[str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path, str]:
+    command_log = tmp_path / "commands.log"
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = _model_download_install_env(
+        tmp_path,
+        prefix,
+        data_dir=data_dir,
+        curl_source=curl_source,
+        command_log=command_log,
+        extra_env=extra_env,
+    )
+    args = [
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        *TINY_CUSTOM_DOWNLOAD_ARGS,
+    ]
+    if install_services:
+        args.extend(
+            [
+                "--service-root",
+                str(service_root or tmp_path / "service-root"),
+                "--install-services",
+            ]
+        )
+    if no_start:
+        args.append("--no-start")
+    if require_model:
+        args.append("--require-model")
+    if extra_args:
+        args.extend(extra_args)
+    result = run_install(*args, env=env)
+    return result, prefix, data_dir, command_log, read_command_log(command_log)
+
+
+def test_llm_dry_run_download_model_prints_default_preset() -> None:
+    result = run_install("--role", "llm", "--download-model", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "qwen3-4b-q4km" in result.stdout
+    assert "Qwen3 4B Q4_K_M" in result.stdout
+    assert "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5" in result.stdout
+    assert "Dry run: no download will occur." in result.stdout
+
+
+def test_llm_dry_run_download_model_8b_preset_shows_advanced_note() -> None:
+    result = run_install(
+        "--role",
+        "llm",
+        "--download-model",
+        "--model-preset",
+        "qwen3-8b-q4km",
+        "--dry-run",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "qwen3-8b-q4km" in result.stdout
+    assert "Qwen3 8B Q4_K_M" in result.stdout
+    assert "609eb8a9fb256d0e2be8b8d252b00bae7c0496fac5e9ccca190206abbb24e2e5" in result.stdout
+    assert "advanced preset" in result.stdout
+
+
+def test_rag_download_model_fails() -> None:
+    result = run_install("--role", "rag", "--download-model", "--dry-run")
+    assert result.returncode != 0
+    assert "--download-model requires role llm or both" in result.stderr
+
+
+def test_llm_dry_run_download_model_never_runs_curl(tmp_path: Path) -> None:
+    command_log = tmp_path / "commands.log"
+    env = fake_helper_env(REPO_ROOT, command_log=command_log)
+    result = run_install(
+        "--role",
+        "llm",
+        "--download-model",
+        "--dry-run",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "curl" not in read_command_log(command_log)
+
+
+def test_llm_download_installs_model_atomically(tmp_path: Path) -> None:
+    result, _, data_dir, _, log = _run_model_download_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    model_path = data_dir / "models" / "model.gguf"
+    assert model_path.is_file()
+    assert model_path.read_bytes() == TINY_MODEL.read_bytes()
+    assert "curl" in log
+    assert "curl -fL" in log
+    assert not list((data_dir / "models").glob("model.gguf.tmp.*"))
+
+
+def test_llm_download_checksum_mismatch_leaves_no_final_model(tmp_path: Path) -> None:
+    result, _, data_dir, _, _ = _run_model_download_install(
+        tmp_path,
+        curl_source=TINY_WRONG_MODEL,
+    )
+    assert result.returncode != 0
+    assert (data_dir / "models" / "model.gguf").exists() is False
+    assert "SHA256 mismatch" in result.stderr or "failed SHA256 verification" in result.stderr
+
+
+def test_llm_download_skips_when_existing_model_matches(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    model_dir = data_dir / "models"
+    model_dir.mkdir(parents=True)
+    model_path = model_dir / "model.gguf"
+    shutil.copy(TINY_MODEL, model_path)
+    result, _, _, _, log = _run_model_download_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "skipping download" in result.stdout.lower()
+    assert "curl -fL" not in log
+
+
+def test_llm_download_existing_invalid_model_fails_without_force(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    model_dir = data_dir / "models"
+    model_dir.mkdir(parents=True)
+    model_path = model_dir / "model.gguf"
+    shutil.copy(TINY_WRONG_MODEL, model_path)
+    result, _, _, _, log = _run_model_download_install(tmp_path)
+    assert result.returncode != 0
+    assert "does not match expected checksum" in result.stderr.lower()
+    assert model_path.read_bytes() == TINY_WRONG_MODEL.read_bytes()
+    assert "curl -fL" not in log
+
+
+def test_llm_download_force_replaces_existing_model_after_verify(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    model_dir = data_dir / "models"
+    model_dir.mkdir(parents=True)
+    model_path = model_dir / "model.gguf"
+    shutil.copy(TINY_WRONG_MODEL, model_path)
+    result, _, _, _, log = _run_model_download_install(
+        tmp_path,
+        extra_args=["--force-model-download"],
+    )
+    assert result.returncode == 0, result.stderr
+    assert model_path.read_bytes() == TINY_MODEL.read_bytes()
+    assert "curl" in log
+    assert "curl -fL" in log
+
+
+def test_llm_validate_only_never_runs_curl(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    command_log = tmp_path / "commands.log"
+    env = _model_download_install_env(tmp_path, prefix, command_log=command_log)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--model-preset",
+        "qwen3-4b-q4km",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "curl -fL" not in read_command_log(command_log)
+
+
+def test_llm_custom_preset_without_sha256_fails() -> None:
+    result = run_install(
+        "--role",
+        "llm",
+        "--download-model",
+        "--model-preset",
+        "custom",
+        "--model-url",
+        "https://example.invalid/model.gguf",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "requires --model-sha256" in result.stderr
+
+
+def test_llm_custom_preset_with_url_and_sha256_downloads(tmp_path: Path) -> None:
+    result, _, data_dir, _, _ = _run_model_download_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (data_dir / "models" / "model.gguf").is_file()
+
+
+def test_llm_validate_model_file_passes_when_present(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    model_dir = data_dir / "models"
+    model_dir.mkdir(parents=True)
+    shutil.copy(TINY_MODEL, model_dir / "model.gguf")
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--model-sha256",
+        TINY_MODEL_SHA,
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[pass] model_file" in result.stdout
+    assert "[pass] model_sha256" in result.stdout
+
+
+def test_llm_validate_model_file_warns_when_missing(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[warning] model_file" in result.stdout
+
+
+def test_llm_validate_model_sha256_fails_on_mismatch(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    model_dir = data_dir / "models"
+    model_dir.mkdir(parents=True)
+    shutil.copy(TINY_WRONG_MODEL, model_dir / "model.gguf")
+    env = fake_helper_env(REPO_ROOT)
+    install = run_install(
+        "--role",
+        "llm",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert install.returncode == 0, install.stderr
+    result = run_install(
+        "--role",
+        "llm",
+        "--validate-only",
+        "--model-sha256",
+        TINY_MODEL_SHA,
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "[fail] model_sha256" in result.stdout
+
+
+def test_llm_service_start_proceeds_when_model_present(tmp_path: Path) -> None:
+    log_path = tmp_path / "commands.log"
+    system_root = tmp_path / "system-root"
+    (system_root / "opt").mkdir(parents=True)
+    model_dir = system_root / "srv" / "ark-pi" / "models"
+    model_dir.mkdir(parents=True)
+    shutil.copy(TINY_MODEL, model_dir / "model.gguf")
+    (system_root / "opt").chmod(0o555)
+    (system_root / "srv").chmod(0o555)
+    extra_env: dict[str, str] = {
+        "ARK_INSTALL_LOCAL_LLAMA_REPO": str(LLAMA_STUB),
+        "ARK_PI_INSTALL_LLAMA_BIN": str(
+            system_root
+            / "srv"
+            / "ark-pi"
+            / "vendor"
+            / "llama.cpp"
+            / "build"
+            / "bin"
+            / "llama-server"
+        ),
+        "ARK_PI_INSTALL_CURL_SOURCE": str(TINY_MODEL),
+        "ARK_PI_INSTALL_TEST_SYSTEM_ROOT": str(system_root),
+    }
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=log_path)
+    result = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--no-os-packages",
+        "--install-services",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(log_path)
+    assert "systemctl start ark-llm.service" in log
+
+
+def test_llm_download_without_llama_build_skips_systemctl_start(tmp_path: Path) -> None:
+    log_path = tmp_path / "commands.log"
+    system_root = tmp_path / "system-root"
+    (system_root / "opt").mkdir(parents=True)
+    (system_root / "srv").mkdir(parents=True)
+    (system_root / "opt").chmod(0o555)
+    (system_root / "srv").chmod(0o555)
+    extra_env: dict[str, str] = {
+        "ARK_PI_INSTALL_CURL_SOURCE": str(TINY_MODEL),
+        "ARK_PI_INSTALL_TEST_SYSTEM_ROOT": str(system_root),
+    }
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=log_path)
+    result = run_install(
+        "--role",
+        "llm",
+        "--no-os-packages",
+        "--install-services",
+        "--yes",
+        "--repo",
+        "file://fake",
+        *TINY_CUSTOM_DOWNLOAD_ARGS,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (system_root / "srv" / "ark-pi" / "models" / "model.gguf").is_file()
+    log = read_command_log(log_path)
+    assert "systemctl start ark-llm.service" not in log
+    assert "llama-server binary missing" in result.stdout
+
+
+def test_llm_no_start_skips_even_with_model_and_binary(tmp_path: Path) -> None:
+    log_path = tmp_path / "commands.log"
+    system_root = tmp_path / "system-root"
+    (system_root / "opt").mkdir(parents=True)
+    model_dir = system_root / "srv" / "ark-pi" / "models"
+    model_dir.mkdir(parents=True)
+    shutil.copy(TINY_MODEL, model_dir / "model.gguf")
+    (system_root / "opt").chmod(0o555)
+    (system_root / "srv").chmod(0o555)
+    extra_env: dict[str, str] = {
+        "ARK_INSTALL_LOCAL_LLAMA_REPO": str(LLAMA_STUB),
+        "ARK_PI_INSTALL_LLAMA_BIN": str(
+            system_root
+            / "srv"
+            / "ark-pi"
+            / "vendor"
+            / "llama.cpp"
+            / "build"
+            / "bin"
+            / "llama-server"
+        ),
+        "ARK_PI_INSTALL_TEST_SYSTEM_ROOT": str(system_root),
+    }
+    env = fake_helper_env(REPO_ROOT, extra=extra_env, command_log=log_path)
+    result = run_install(
+        "--role",
+        "llm",
+        "--llama-build",
+        "--no-os-packages",
+        "--install-services",
+        "--no-start",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(log_path)
+    assert "systemctl start ark-llm.service" not in log
+
+
+def test_rag_service_start_unchanged_when_llm_prerequisites_missing(tmp_path: Path) -> None:
+    log_path = tmp_path / "commands.log"
+    env, _ = fake_system_root_env(tmp_path, REPO_ROOT, command_log=log_path)
+    result = run_install(
+        "--role",
+        "rag",
+        "--no-os-packages",
+        "--install-services",
+        "--yes",
+        "--repo",
+        "file://fake",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    log = read_command_log(log_path)
+    assert "systemctl start ark-rag.service" in log
+    assert "systemctl start ark-llm.service" not in log
+
+
+def test_llm_download_writes_model_under_data_dir_not_prefix(tmp_path: Path) -> None:
+    result, prefix, data_dir, _, _ = _run_model_download_install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (data_dir / "models" / "model.gguf").is_file()
+    assert not (prefix / "models").exists()
