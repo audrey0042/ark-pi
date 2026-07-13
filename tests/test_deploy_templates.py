@@ -8,6 +8,7 @@ from ark_pi.deploy.templates import (
     ARK_RAG_ENV,
     ARK_RAG_SERVICE,
     LlmRenderConfig,
+    RagRenderConfig,
     render_deployment_templates,
     validate_output_dir,
 )
@@ -122,3 +123,22 @@ def test_render_creates_output_dir(tmp_path: Path) -> None:
 
     assert output.is_dir()
     assert result.output_dir == str(output.resolve())
+
+
+def test_render_rag_with_custom_llm_base_url(tmp_path: Path) -> None:
+    config = RagRenderConfig(llm_base_url="http://10.255.255.101:8080")
+    render_deployment_templates(tmp_path, role="rag", force=True, rag_config=config)
+
+    content = (tmp_path / "ark-rag.env").read_text(encoding="utf-8")
+    assert "ARK_LLM_BASE_URL=http://10.255.255.101:8080" in content
+    assert content != ARK_RAG_ENV
+
+
+def test_render_all_with_rag_llm_base_url_override(tmp_path: Path) -> None:
+    config = RagRenderConfig(llm_base_url="http://10.255.255.101:8080")
+    render_deployment_templates(tmp_path, role="all", force=True, rag_config=config)
+
+    rag_content = (tmp_path / "ark-rag.env").read_text(encoding="utf-8")
+    llm_content = (tmp_path / "ark-llm.env").read_text(encoding="utf-8")
+    assert "ARK_LLM_BASE_URL=http://10.255.255.101:8080" in rag_content
+    assert llm_content == ARK_LLM_ENV

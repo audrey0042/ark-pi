@@ -72,6 +72,7 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
   _llama_bin="/srv/ark-pi/vendor/llama.cpp/build/bin/llama-server"
   _model_dir="/srv/ark-pi/models"
   _model_path="/srv/ark-pi/models/model.gguf"
+  _llm_base_url="http://ark-llm.local:8080"
   shift 2
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -123,6 +124,14 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
         _model_path="$2"
         shift 2
         ;;
+      --llm-base-url=*)
+        _llm_base_url="${1#*=}"
+        shift
+        ;;
+      --llm-base-url)
+        _llm_base_url="$2"
+        shift 2
+        ;;
       --force)
         shift
         ;;
@@ -132,7 +141,11 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
     esac
   done
   if [ -n "${ARK_INSTALL_RENDER_LOG:-}" ]; then
-    echo "deploy render --output-dir $_output --role $_role --force" >> "$ARK_INSTALL_RENDER_LOG"
+    _render_log="deploy render --output-dir $_output --role $_role --force"
+    if [ -n "$_llm_base_url" ]; then
+      _render_log="$_render_log --llm-base-url $_llm_base_url"
+    fi
+    echo "$_render_log" >> "$ARK_INSTALL_RENDER_LOG"
   fi
   if [ -n "$_output" ]; then
     mkdir -p "$_output"
@@ -140,6 +153,7 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
     if [ "${ARK_INSTALL_RENDER_SKIP_TEMPLATES:-0}" != "1" ]; then
       echo "ARK_ROLE=rag" > "$_output/ark-rag.env"
       echo "ARK_WORKSPACE_DIR=/generated/rag/workspace" >> "$_output/ark-rag.env"
+      echo "ARK_LLM_BASE_URL=$_llm_base_url" >> "$_output/ark-rag.env"
       echo "[Service]" > "$_output/ark-rag.service"
       echo "ARK_ROLE=llm" > "$_output/ark-llm.env"
       echo "ARK_LLAMA_HOST=0.0.0.0" >> "$_output/ark-llm.env"

@@ -192,6 +192,18 @@ Passive operator checklist across CLI (`ark preflight`), API (`GET /api/prefligh
 
 **Status: done**
 
+## 47. Partner Pi address configuration
+
+Explicit installer-time configuration for the partner LLM Pi address on ark-rag. `install.sh --llm-base-url` / `--partner-ip` renders `ARK_LLM_BASE_URL` into `ark-rag.env` so IP-based two-Pi installs do not require hand-editing `/etc/ark-pi/ark-rag.env`.
+
+**Status: done**
+
+## 48. Partner Pi network auto-discovery
+
+mDNS hostname resolution, LAN scanning, and DHCP/router integration for finding ark-llm automatically. Out of scope for slice 47; operators configure static IPs, DHCP reservations, or `/etc/hosts` today.
+
+**Status: future**
+
 ## 32. WiFi AP and systemd deployment
 
 Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd units, storage mounts. See `deploy/`.

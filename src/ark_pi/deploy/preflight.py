@@ -412,6 +412,16 @@ def _check_rag_llm_base_url(generated_dir: Path) -> DeploymentPreflightCheck:
             details={},
         )
     lowered = base_url.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        return DeploymentPreflightCheck(
+            id="rag_llm_base_url",
+            label="RAG LLM base URL",
+            status="fail",
+            message=(
+                f"ARK_LLM_BASE_URL must start with http:// or https:// (got: {base_url})"
+            ),
+            details={"base_url": base_url},
+        )
     if any(marker in lowered for marker in LOCALHOST_LLM_URL_MARKERS):
         return DeploymentPreflightCheck(
             id="rag_llm_base_url",

@@ -106,6 +106,42 @@ def test_preflight_rag_localhost_llm_base_url_produces_warning(rendered_dir: Pat
     assert url_check.status == "warning"
 
 
+def test_preflight_rag_malformed_llm_base_url_produces_blocked(rendered_dir: Path) -> None:
+    rag_env = rendered_dir / "ark-rag.env"
+    content = rag_env.read_text(encoding="utf-8")
+    rag_env.write_text(
+        content.replace(
+            "ARK_LLM_BASE_URL=http://ark-llm.local:8080",
+            "ARK_LLM_BASE_URL=10.255.255.101:8080",
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_deployment_preflight(rendered_dir, role="rag")
+
+    assert result.overall_status == "blocked"
+    url_check = next(c for c in result.checks if c.id == "rag_llm_base_url")
+    assert url_check.status == "fail"
+    assert "http://" in url_check.message
+
+
+def test_preflight_rag_lan_ip_llm_base_url_produces_pass(rendered_dir: Path) -> None:
+    rag_env = rendered_dir / "ark-rag.env"
+    content = rag_env.read_text(encoding="utf-8")
+    rag_env.write_text(
+        content.replace(
+            "ARK_LLM_BASE_URL=http://ark-llm.local:8080",
+            "ARK_LLM_BASE_URL=http://10.255.255.101:8080",
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_deployment_preflight(rendered_dir, role="rag")
+
+    url_check = next(c for c in result.checks if c.id == "rag_llm_base_url")
+    assert url_check.status == "pass"
+
+
 def test_preflight_rag_missing_ark_binary_produces_warning(rendered_dir: Path) -> None:
     result = run_deployment_preflight(rendered_dir, role="rag")
 

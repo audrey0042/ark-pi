@@ -116,6 +116,13 @@ def test_help_exits_zero_and_prints_usage() -> None:
     assert "--download-model" in result.stdout
 
 
+def test_help_lists_llm_base_url_and_partner_ip_flags() -> None:
+    result = run_install("--help")
+    assert result.returncode == 0
+    assert "--llm-base-url" in result.stdout
+    assert "--partner-ip" in result.stdout
+
+
 @pytest.mark.parametrize("role", ["rag", "llm", "both"])
 def test_role_dry_run_exits_zero(role: str) -> None:
     result = run_install("--role", role, "--dry-run")
@@ -913,7 +920,9 @@ def test_rag_service_install_copies_files(tmp_path: Path) -> None:
     assert env_file.is_file()
     assert svc_file.is_file()
     assert env_file.read_text(encoding="utf-8") == (
-        "ARK_ROLE=rag\nARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+        "ARK_ROLE=rag\n"
+        "ARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+        "ARK_LLM_BASE_URL=http://ark-llm.local:8080\n"
     )
     assert not (service_root / "etc" / "ark-pi" / "ark-llm.env").exists()
 
@@ -957,7 +966,9 @@ def test_existing_service_files_are_backed_up(tmp_path: Path) -> None:
     result = _run_service_install(tmp_path, "rag")
     assert result.returncode == 0, result.stderr
     assert existing.read_text(encoding="utf-8") == (
-        "ARK_ROLE=rag\nARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+        "ARK_ROLE=rag\n"
+        "ARK_WORKSPACE_DIR=/generated/rag/workspace\n"
+        "ARK_LLM_BASE_URL=http://ark-llm.local:8080\n"
     )
     backups = list((service_root / "etc" / "ark-pi").glob("ark-rag.env.bak.*"))
     assert len(backups) == 1
@@ -2183,6 +2194,141 @@ def test_rag_llama_build_fails_clearly() -> None:
     result = run_install("--role", "rag", "--llama-build", "--dry-run")
     assert result.returncode != 0
     assert "--llama-build requires role llm or both" in result.stderr
+
+
+def test_rag_dry_run_prints_default_partner_llm_url() -> None:
+    result = run_install("--role", "rag", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "Partner LLM URL:" in result.stdout
+    assert "http://ark-llm.local:8080" in result.stdout
+
+
+def test_rag_dry_run_llm_base_url_in_plan_and_render_command() -> None:
+    result = run_install(
+        "--role",
+        "rag",
+        "--llm-base-url",
+        "http://10.255.255.101:8080",
+        "--dry-run",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Partner LLM URL:" in result.stdout
+    assert "http://10.255.255.101:8080" in result.stdout
+    assert "--llm-base-url http://10.255.255.101:8080" in result.stdout
+
+
+def test_rag_dry_run_partner_ip_renders_http_url() -> None:
+    result = run_install("--role", "rag", "--partner-ip", "10.255.255.101", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "Partner LLM URL:" in result.stdout
+    assert "http://10.255.255.101:8080" in result.stdout
+    assert "--llm-base-url http://10.255.255.101:8080" in result.stdout
+
+
+def test_rag_dry_run_partner_hostname_renders_http_url() -> None:
+    result = run_install("--role", "rag", "--partner-ip", "llm-pi.local", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "http://llm-pi.local:8080" in result.stdout
+    assert "--llm-base-url http://llm-pi.local:8080" in result.stdout
+
+
+def test_rag_dry_run_llm_base_url_wins_over_partner_ip() -> None:
+    result = run_install(
+        "--role",
+        "rag",
+        "--llm-base-url",
+        "http://10.255.255.200:8080",
+        "--partner-ip",
+        "10.255.255.101",
+        "--dry-run",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "http://10.255.255.200:8080" in result.stdout
+    assert "10.255.255.101" not in result.stdout
+
+
+def test_rag_malformed_llm_base_url_exits_nonzero() -> None:
+    result = run_install(
+        "--role",
+        "rag",
+        "--llm-base-url",
+        "10.255.255.101:8080",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "http://" in result.stderr.lower()
+
+
+def test_llm_llm_base_url_flag_rejected() -> None:
+    result = run_install(
+        "--role",
+        "llm",
+        "--llm-base-url",
+        "http://10.255.255.101:8080",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "--llm-base-url requires role rag or both" in result.stderr
+
+
+def test_llm_partner_ip_flag_rejected() -> None:
+    result = run_install("--role", "llm", "--partner-ip", "10.255.255.101", "--dry-run")
+    assert result.returncode != 0
+    assert "--partner-ip requires role rag or both" in result.stderr
+
+
+def test_rag_install_renders_llm_base_url_in_generated_env(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--llm-base-url",
+        "http://10.255.255.101:8080",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    rag_env = (generated / "ark-rag.env").read_text(encoding="utf-8")
+    assert "ARK_LLM_BASE_URL=http://10.255.255.101:8080" in rag_env
+
+
+def test_rag_install_partner_ip_renders_llm_base_url_in_generated_env(tmp_path: Path) -> None:
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    env = fake_helper_env(REPO_ROOT)
+
+    result = run_install(
+        "--role",
+        "rag",
+        "--prefix",
+        str(prefix),
+        "--data-dir",
+        str(data_dir),
+        "--generated-dir",
+        str(generated),
+        "--partner-ip",
+        "10.255.255.101",
+        "--repo",
+        "file://fake",
+        "--yes",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    rag_env = (generated / "ark-rag.env").read_text(encoding="utf-8")
+    assert "ARK_LLM_BASE_URL=http://10.255.255.101:8080" in rag_env
 
 
 def test_cmake_fixture_fails_without_source_dir() -> None:

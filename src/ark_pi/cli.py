@@ -897,6 +897,11 @@ def deploy_render(
         "--threads",
         help="Thread count for llama-server",
     ),
+    llm_base_url: str | None = typer.Option(
+        None,
+        "--llm-base-url",
+        help="Partner LLM base URL for ark-rag.env (ARK_LLM_BASE_URL)",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Output API-shaped JSON"),
 ) -> None:
     """Render ark-rag and ark-llm env/systemd templates for review (does not install)."""
@@ -925,12 +930,20 @@ def deploy_render(
             **{**base.__dict__, **llm_overrides}
         )
 
+    rag_config = None
+    if llm_base_url is not None:
+        base = deploy_templates.RagRenderConfig()
+        rag_config = deploy_templates.RagRenderConfig(
+            **{**base.__dict__, "llm_base_url": llm_base_url}
+        )
+
     try:
         result = deploy_templates.render_deployment_templates(
             output_dir,
             role=role.value,
             force=force,
             llm_config=llm_config,
+            rag_config=rag_config,
         )
     except ValueError as exc:
         typer.echo(str(exc), err=True)
