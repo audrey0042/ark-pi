@@ -69,6 +69,8 @@ phone/laptop --WiFi--> ark-rag --Ethernet--> ark-llm
 
 Manual steps: [docs/deployment/two-pi-manual.md](docs/deployment/two-pi-manual.md). WiFi AP, network config, and systemd are still manual/TODO.
 
+For two-Pi installs on a LAN without hostname discovery, configure the partner LLM address at install time with `--llm-base-url` (or `--partner-ip` as a convenience alias). Auto-discovery (mDNS, LAN scanning) is not implemented yet.
+
 ## Install bootstrap (`install.sh`)
 
 `install.sh` bootstraps the app and renders deployment templates: on apt-based Debian-family hosts (Raspberry Pi OS, Debian, Ubuntu) it can install the RAG Pi OS prerequisite baseline (`ca-certificates`, `curl`, `git`, `python3`, `python3-venv`, `python3-pip`, `python3-dev`, `build-essential`, `pkg-config`, `rsync`, `unzip`, `jq`), then clone/update repo, venv, `pip install -e`, role data dirs, and `ark deploy render` under `--generated-dir` (default: `$DATA_DIR/deploy/generated`).
@@ -106,6 +108,20 @@ Baseline LLM install (`--role llm --install-services --no-start --yes`) complete
 Optional GGUF download with `--download-model` (role `llm` or `both` only). Default preset: **Qwen3 4B Q4_K_M** (`qwen3-4b-q4km`, ~2.5 GB, Apache-2.0). Advanced preset: **Qwen3 8B Q4_K_M** (`qwen3-8b-q4km`, ~5 GB, Apache-2.0; may be tight on Pi 5 8GB). Downloads verify SHA256 and install atomically to `/srv/ark-pi/models/model.gguf`. Without `--download-model`, place any compatible GGUF there manually.
 
 Does **not** download models unless `--download-model` is passed. Optional llama.cpp source build with `--llama-build` (role `llm` or `both`). Does **not** configure network or WiFi AP.
+
+Two-Pi RAG Pi install with explicit partner LLM address (example IPs below — substitute your LAN addresses):
+
+```bash
+sh install.sh --role rag --install-services --llm-base-url http://10.255.255.101:8080 --yes
+```
+
+Convenience alias (adds `http://` and `:8080`; example ark-llm address `10.255.255.101`):
+
+```bash
+sh install.sh --role rag --install-services --partner-ip 10.255.255.101 --yes
+```
+
+When no flag is provided, `ARK_LLM_BASE_URL` defaults to `http://ark-llm.local:8080` in the rendered `ark-rag.env`.
 
 LLM Pi examples:
 

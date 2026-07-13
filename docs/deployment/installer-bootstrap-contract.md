@@ -250,9 +250,16 @@ Services (when `--install-services`, or service files exist under service root):
 
 - Install Python and project dependencies.
 - Create workspace and source directories under `--data-dir`.
-- Default `ARK_LLM_BACKEND=mock` unless an LLM base URL is supplied.
-- Render `ark-rag.env` and `ark-rag.service` into `--generated-dir` (review only; not copied to `/etc`).
+- Render `ark-rag.env` and `ark-rag.service` into `--generated-dir` (review only; not copied to `/etc` unless `--install-services`).
+- Default `ARK_LLM_BASE_URL=http://ark-llm.local:8080` in rendered `ark-rag.env` when no partner address flag is supplied.
+- Optional `--llm-base-url URL` sets `ARK_LLM_BASE_URL` in rendered `ark-rag.env` (role `rag` or `both` only). Accepts `http://` or `https://` URLs, static IPs, or hostnames.
+- Optional `--partner-ip HOST_OR_IP` convenience alias: converts to `http://HOST:8080` unless the value already starts with `http://` or `https://`.
+- Flag precedence: `--llm-base-url` wins over `--partner-ip` when both are supplied.
+- Install plan prints **Partner LLM URL** for `rag` / `both`; `llm` shows `n/a`.
+- **`--role llm --llm-base-url` and `--role llm --partner-ip` are rejected.**
 - Print env-aware validation: load `ark-rag.env`, then `ark preflight`, `ark llm status`.
+
+Flags: `--llm-base-url`, `--partner-ip`.
 
 ### `llm`
 

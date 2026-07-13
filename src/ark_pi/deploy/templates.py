@@ -20,18 +20,32 @@ FORBIDDEN_OUTPUT_ROOTS = (
     Path("/etc/systemd"),
 )
 
-ARK_RAG_ENV = """\
-ARK_ROLE=rag
-ARK_HOST=0.0.0.0
-ARK_PORT=8000
-ARK_WORKSPACE_DIR=/srv/ark-pi/data/workspace
-ARK_SOURCE_DIR=/srv/ark-pi/data/sources
-ARK_INDEX_BACKEND=simple
-ARK_LLM_BACKEND=openai-compatible
-ARK_LLM_BASE_URL=http://ark-llm.local:8080
-ARK_LLM_MODEL=local
-ARK_MAX_IMPORT_BYTES=52428800
-"""
+DEFAULT_RAG_LLM_BASE_URL = "http://ark-llm.local:8080"
+
+
+@dataclass(frozen=True)
+class RagRenderConfig:
+    llm_base_url: str = DEFAULT_RAG_LLM_BASE_URL
+
+
+def render_rag_env(config: RagRenderConfig | None = None) -> str:
+    cfg = config or RagRenderConfig()
+    return (
+        "ARK_ROLE=rag\n"
+        "ARK_HOST=0.0.0.0\n"
+        "ARK_PORT=8000\n"
+        "ARK_WORKSPACE_DIR=/srv/ark-pi/data/workspace\n"
+        "ARK_SOURCE_DIR=/srv/ark-pi/data/sources\n"
+        "ARK_INDEX_BACKEND=simple\n"
+        "ARK_LLM_BACKEND=openai-compatible\n"
+        f"ARK_LLM_BASE_URL={cfg.llm_base_url}\n"
+        "ARK_LLM_MODEL=local\n"
+        "ARK_MAX_IMPORT_BYTES=52428800\n"
+    )
+
+
+DEFAULT_RAG_RENDER_CONFIG = RagRenderConfig()
+ARK_RAG_ENV = render_rag_env(DEFAULT_RAG_RENDER_CONFIG)
 
 ARK_RAG_SERVICE = """\
 [Unit]
@@ -141,10 +155,14 @@ def _llm_templates(config: LlmRenderConfig | None = None) -> tuple[TemplateDefin
     )
 
 
-RAG_TEMPLATES: tuple[TemplateDefinition, ...] = (
-    TemplateDefinition("ark-rag.env", ARK_RAG_ENV, "env", "rag"),
-    TemplateDefinition("ark-rag.service", ARK_RAG_SERVICE, "systemd", "rag"),
-)
+def _rag_templates(config: RagRenderConfig | None = None) -> tuple[TemplateDefinition, ...]:
+    return (
+        TemplateDefinition("ark-rag.env", render_rag_env(config), "env", "rag"),
+        TemplateDefinition("ark-rag.service", ARK_RAG_SERVICE, "systemd", "rag"),
+    )
+
+
+RAG_TEMPLATES: tuple[TemplateDefinition, ...] = _rag_templates()
 
 LLM_TEMPLATES: tuple[TemplateDefinition, ...] = _llm_templates()
 
@@ -173,12 +191,13 @@ def validate_output_dir(output_dir: Path) -> Path:
 def _templates_for_role(
     role: DeployRole,
     llm_config: LlmRenderConfig | None = None,
+    rag_config: RagRenderConfig | None = None,
 ) -> tuple[TemplateDefinition, ...]:
     if role == "rag":
-        return RAG_TEMPLATES
+        return _rag_templates(rag_config)
     if role == "llm":
         return _llm_templates(llm_config)
-    return RAG_TEMPLATES + _llm_templates(llm_config)
+    return _rag_templates(rag_config) + _llm_templates(llm_config)
 
 
 def render_deployment_templates(
@@ -187,10 +206,11 @@ def render_deployment_templates(
     role: DeployRole = "all",
     force: bool = False,
     llm_config: LlmRenderConfig | None = None,
+    rag_config: RagRenderConfig | None = None,
 ) -> RenderResult:
     """Render deployment env and systemd templates to output_dir (dry-run scaffold only)."""
     resolved_output = validate_output_dir(Path(output_dir))
-    templates = _templates_for_role(role, llm_config)
+    templates = _templates_for_role(role, llm_config, rag_config)
 
     existing_conflicts: list[str] = []
     for template in templates:

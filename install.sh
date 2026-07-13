@@ -54,6 +54,11 @@ MODEL_DOWNLOAD_URL=""
 MODEL_EXPECTED_SHA256=""
 BUILD_JOBS=0
 
+LLM_BASE_URL=""
+PARTNER_IP=""
+RESOLVED_LLM_BASE_URL=""
+DEFAULT_LLM_BASE_URL="http://ark-llm.local:8080"
+
 INSTALL_OWNER=""
 INSTALL_GROUP=""
 
@@ -117,10 +122,14 @@ Options:
   --model-sha256 SHA256     Expected SHA256 for custom model or preset override
   --force-model-download    Replace existing model after successful verification
   --build-jobs N            Parallel cmake build jobs (default: CPU count or 2)
+  --llm-base-url URL        Partner LLM base URL for ark-rag.env (role rag or both)
+  --partner-ip HOST_OR_IP   Convenience alias: http://HOST:8080 (role rag or both)
   --help                    Show this help
 
 Examples:
   sh install.sh --role rag --dry-run
+  sh install.sh --role rag --install-services --llm-base-url http://10.255.255.101:8080 --yes
+  sh install.sh --role rag --install-services --partner-ip 10.255.255.101 --yes
   sh install.sh --role llm --llama-build --dry-run
   sh install.sh --role llm --download-model --dry-run
   sh install.sh --role llm --install-services --llama-build --download-model --yes
@@ -380,6 +389,28 @@ parse_args() {
         BUILD_JOBS="$2"
         shift 2
         ;;
+      --llm-base-url=*)
+        LLM_BASE_URL="${1#*=}"
+        shift
+        ;;
+      --llm-base-url)
+        if [ $# -lt 2 ]; then
+          die "missing value for --llm-base-url"
+        fi
+        LLM_BASE_URL="$2"
+        shift 2
+        ;;
+      --partner-ip=*)
+        PARTNER_IP="${1#*=}"
+        shift
+        ;;
+      --partner-ip)
+        if [ $# -lt 2 ]; then
+          die "missing value for --partner-ip"
+        fi
+        PARTNER_IP="$2"
+        shift 2
+        ;;
       --no-os-packages)
         NO_OS_PACKAGES=1
         shift
@@ -546,6 +577,60 @@ validate_llama_flags() {
   fi
   if [ "$LLAMA_BUILD" -eq 1 ] && [ "$NO_LLAMA_BUILD" -eq 1 ]; then
     die "cannot use --llama-build with --no-llama-build"
+  fi
+}
+
+normalize_partner_ip() {
+  _value="$1"
+  case "$_value" in
+    http://*|https://*)
+      echo "$_value"
+      ;;
+    *)
+      echo "http://${_value}:8080"
+      ;;
+  esac
+}
+
+resolve_llm_base_url() {
+  RESOLVED_LLM_BASE_URL=""
+  if [ -n "$LLM_BASE_URL" ]; then
+    RESOLVED_LLM_BASE_URL="$LLM_BASE_URL"
+  elif [ -n "$PARTNER_IP" ]; then
+    RESOLVED_LLM_BASE_URL=$(normalize_partner_ip "$PARTNER_IP")
+  fi
+}
+
+validate_llm_base_url_shape() {
+  _url="$1"
+  case "$_url" in
+    http://*|https://*) ;;
+    *)
+      die "invalid LLM base URL: must start with http:// or https:// (got: $_url)"
+      ;;
+  esac
+}
+
+validate_llm_url_flags() {
+  if [ "$ROLE" = "llm" ]; then
+    if [ -n "$LLM_BASE_URL" ]; then
+      die "--llm-base-url requires role rag or both (not llm)"
+    fi
+    if [ -n "$PARTNER_IP" ]; then
+      die "--partner-ip requires role rag or both (not llm)"
+    fi
+    return 0
+  fi
+  if [ -n "$RESOLVED_LLM_BASE_URL" ]; then
+    validate_llm_base_url_shape "$RESOLVED_LLM_BASE_URL"
+  fi
+}
+
+display_llm_base_url() {
+  if [ -n "$RESOLVED_LLM_BASE_URL" ]; then
+    echo "$RESOLVED_LLM_BASE_URL"
+  else
+    echo "$DEFAULT_LLM_BASE_URL"
   fi
 }
 
@@ -1454,6 +1539,14 @@ print_common_summary() {
       fi
       ;;
   esac
+  case "$ROLE" in
+    rag|both)
+      echo "Partner LLM URL:       $(display_llm_base_url)"
+      ;;
+    llm)
+      echo "Partner LLM URL:       n/a"
+      ;;
+  esac
   echo ""
 }
 
@@ -1480,6 +1573,13 @@ render_deploy_command() {
   case "$ROLE" in
     llm|both)
       _cmd="$_cmd --prefix $PREFIX --llama-bin $LLAMA_BIN --model-dir $MODEL_DIR --model-path $MODEL_PATH"
+      ;;
+  esac
+  case "$ROLE" in
+    rag|both)
+      if [ -n "$RESOLVED_LLM_BASE_URL" ]; then
+        _cmd="$_cmd --llm-base-url $RESOLVED_LLM_BASE_URL"
+      fi
       ;;
   esac
   echo "$_cmd"
@@ -1872,22 +1972,22 @@ run_deploy_render() {
     die "ark CLI missing at $_ark"
   fi
   mkdir -p "$_generated"
+  set -- "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force
   case "$ROLE" in
     llm|both)
-      if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force \
-        --prefix "$PREFIX" \
-        --llama-bin "$LLAMA_BIN" \
-        --model-dir "$MODEL_DIR" \
-        --model-path "$MODEL_PATH"; then
-        die "ark deploy render failed"
-      fi
+      set -- "$@" --prefix "$PREFIX" --llama-bin "$LLAMA_BIN" --model-dir "$MODEL_DIR" --model-path "$MODEL_PATH"
       ;;
-    *)
-      if ! "$_ark" deploy render --output-dir "$_generated" --role "$_deploy_role" --force; then
-        die "ark deploy render failed"
+  esac
+  case "$ROLE" in
+    rag|both)
+      if [ -n "$RESOLVED_LLM_BASE_URL" ]; then
+        set -- "$@" --llm-base-url "$RESOLVED_LLM_BASE_URL"
       fi
       ;;
   esac
+  if ! "$@"; then
+    die "ark deploy render failed"
+  fi
 }
 
 validate_generated_service_files() {
@@ -2813,6 +2913,8 @@ main() {
     fi
   fi
   validate_role
+  resolve_llm_base_url
+  validate_llm_url_flags
   validate_llama_flags
   validate_download_model_flags
   resolve_llama_paths

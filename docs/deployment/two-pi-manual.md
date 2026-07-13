@@ -42,6 +42,57 @@ ark-llm stays stateless on purpose. Indexes and prompts live on ark-rag. ark-llm
 - **Mock LLM backend** is the default for local smoke tests (`ARK_LLM_BACKEND=mock`).
 - A **GGUF model file** is required only for the real ark-llm inference path.
 - Network between ark-rag and ark-llm is reachable on the configured LLM port (default `8080` in generated templates).
+- Hostname discovery (mDNS) is not implemented yet; use explicit IPs or hostnames you control (DHCP reservations, static IPs, or `/etc/hosts`).
+
+## IP-based two-Pi setup (installer)
+
+When ark-rag and ark-llm have fixed LAN addresses, configure the partner LLM URL during RAG Pi install instead of editing `/etc/ark-pi/ark-rag.env` by hand.
+
+Example addresses (substitute your own):
+
+| Host | Example IP | Service |
+|------|------------|---------|
+| ark-rag | `10.255.255.100` | `ark-rag.service` on port 8000 |
+| ark-llm | `10.255.255.101` | `ark-llm.service` on port 8080 |
+
+**LLM Pi** (build, model, services):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- \
+  --role llm --install-services --llama-build --download-model --yes
+```
+
+**RAG Pi** with explicit partner address:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- \
+  --role rag --install-services --llm-base-url http://10.255.255.101:8080 --yes
+```
+
+Convenience alias (`10.255.255.101` becomes `http://10.255.255.101:8080`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/audrey0042/ark-pi/main/install.sh | sh -s -- \
+  --role rag --install-services --partner-ip 10.255.255.101 --yes
+```
+
+Dry-run to review the plan (shows **Partner LLM URL**):
+
+```bash
+sh install.sh --role rag --llm-base-url http://10.255.255.101:8080 --dry-run
+```
+
+Default when no flag is provided: `ARK_LLM_BASE_URL=http://ark-llm.local:8080`.
+
+Verify after install:
+
+```bash
+sudo systemctl restart ark-rag.service
+curl -s http://127.0.0.1:8000/api/status | jq .paths.llm_base_url
+sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm test'
+```
+
+Auto-discovery (mDNS, LAN scan) is future work. Until then, ensure both Pis have stable addresses via your router (DHCP reservations) or OS static IP configuration.
 
 ## RAG Pi OS prerequisites
 
@@ -303,12 +354,16 @@ $ARK_LLAMA_BIN \
 
 ## Connect ark-rag to ark-llm
 
-When ark-llm responds manually:
+When ark-llm responds manually, ark-rag needs `ARK_LLM_BACKEND=openai-compatible` and a reachable `ARK_LLM_BASE_URL`.
 
-1. On **ark-rag**, set:
-   - `ARK_LLM_BACKEND=openai-compatible`
-   - `ARK_LLM_BASE_URL=http://ark-llm.local:8080` (hostname or IP you actually use)
-2. Restart `ark serve` (foreground) or reload env for your process manager.
+**Preferred (installer):** set the partner address at RAG Pi install time:
+
+```bash
+sh install.sh --role rag --install-services --llm-base-url http://10.255.255.101:8080 --yes
+# or: --partner-ip 10.255.255.101
+```
+
+**Manual fallback:** edit `/etc/ark-pi/ark-rag.env` and set `ARK_LLM_BASE_URL` to the hostname or IP you actually use, then restart `ark-rag.service`.
 
 ### Status vs test
 

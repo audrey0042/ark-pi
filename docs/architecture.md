@@ -109,6 +109,8 @@ The default index backend is `simple` (`ARK_INDEX_BACKEND=simple`). It provides 
 
 **ark-rag**: web UI, API, workspace, ingest, indexing, prompts, OpenAI-compatible LLM client (talks to ark-llm over HTTP). **ark-llm**: `llama-server` from llama.cpp, OpenAI-compatible HTTP API on port 8080.
 
+ark-rag depends on `ARK_LLM_BASE_URL` in `/etc/ark-pi/ark-rag.env` to reach ark-llm. The installer renders this at install time via `--llm-base-url` or `--partner-ip` (role `rag` or `both`). Default when unset: `http://ark-llm.local:8080`. Network auto-discovery is future work; operators supply a reachable IP or hostname today.
+
 `ark deploy *` commands build/review artifacts only. [install.sh](../install.sh) bootstraps the app, renders templates, validates, optionally installs systemd units, and can build llama.cpp with `--llama-build`. GGUF model placement and network/WiFi remain manual. See [two-pi-manual.md](deployment/two-pi-manual.md) and [installer-bootstrap-contract.md](deployment/installer-bootstrap-contract.md).
 
 WiFi AP and Ethernet routing are still manual/TODO.
