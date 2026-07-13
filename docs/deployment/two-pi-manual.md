@@ -89,7 +89,35 @@ Verify after install:
 ```bash
 sudo systemctl restart ark-rag.service
 curl -s http://127.0.0.1:8000/api/status | jq .paths.llm_base_url
-sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm test'
+sudo /opt/ark-pi/.venv/bin/ark appliance smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+`ark appliance ask-smoke` uses an isolated tiny corpus (`ark-pi-smoke-beacon.txt` → `ark-smoke` index) with a deterministic beacon phrase (`copper lantern`). It validates ingest, chunking, indexing, retrieval, prompt assembly, and LLM generation through the configured partner backend. Artifacts are removed after the run unless you pass `--keep`.
+
+Capture an offline validation receipt after basic checks:
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-rag.env --output /tmp/ark-rag-receipt.json
+```
+
+For a receipt that includes active smoke results (opt-in network and LLM activity):
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt \
+  --env-file /etc/ark-pi/ark-rag.env \
+  --run-smoke \
+  --run-ask-smoke \
+  --output /tmp/ark-rag-active-receipt.json
+```
+
+Raw LLM server fallback for debugging (bypasses ark-pi):
+
+```bash
+curl -s http://192.168.1.134:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"local","messages":[{"role":"user","content":"Reply with: ark-pi-ok"}]}'
 ```
 
 Auto-discovery (mDNS, LAN scan) is future work. Until then, ensure both Pis have stable addresses via your router (DHCP reservations) or OS static IP configuration.
