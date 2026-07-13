@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ark_pi.deploy.preflight import parse_env_file
 from ark_pi.llm_client.diagnostics import llm_passive_status
 
 Role = Literal["rag", "llm", "dev"]
@@ -60,6 +61,27 @@ def get_settings() -> ArkSettings:
 
 def clear_settings_cache() -> None:
     get_settings.cache_clear()
+
+
+def load_settings_from_env_file(path: Path) -> ArkSettings:
+    """Load settings from a deployment env file (e.g. /etc/ark-pi/ark-rag.env)."""
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        hint = ""
+        if isinstance(exc, PermissionError):
+            hint = " (try running with sudo for root-only env files under /etc/ark-pi/)"
+        raise ValueError(f"Cannot read env file {path}: {exc}{hint}") from exc
+
+    _values, errors = parse_env_file(content)
+    structural_errors = [
+        error for error in errors if error != "env file has no KEY=VALUE entries"
+    ]
+    if structural_errors:
+        joined = "; ".join(structural_errors)
+        raise ValueError(f"Invalid env file {path}: {joined}")
+
+    return ArkSettings(_env_file=str(path), _env_file_encoding="utf-8")
 
 
 def settings_for_display(settings: ArkSettings) -> dict[str, Any]:

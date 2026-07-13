@@ -12,6 +12,30 @@ Still TODO: OS packages, llama.cpp automation, model/corpus tooling, WiFi AP, ne
 
 ---
 
+## 48. Two-Pi smoke command
+
+`ark appliance smoke` with `--env-file`, `--json`, `--llm-base-url`, and `--timeout`. Validates the RAG Pi to LLM Pi OpenAI-compatible chat path using the `ark-pi-ok` diagnostic prompt. Explicit network validation for operators; not run automatically during installer preflight.
+
+**Status: done**
+
+---
+
+## 49. Deterministic end-to-end ask smoke
+
+`ark appliance ask-smoke` with `--env-file`, `--json`, `--keep`, and `--timeout`. Seeds an isolated tiny corpus, builds the `ark-smoke` index, verifies retrieval of the beacon phrase `copper lantern`, runs the normal ask pipeline through the configured LLM backend, validates the generated answer, and cleans up smoke artifacts by default.
+
+**Status: done**
+
+---
+
+## 50. Appliance validation receipt
+
+`ark appliance receipt` with `--env-file`, `--json`, `--output`, `--receipt-dir`, optional `--run-smoke`, `--run-ask-smoke`, `--hash-model`, and installer `--receipt-path` / `--receipt-dir` flags. Versioned offline JSON evidence for RAG and LLM appliances with allowlisted configuration, filesystem/deployment checks, read-only service state, and optional embedded Slice 48/49 smoke results.
+
+**Status: done**
+
+---
+
 ## 1. Scaffold and config
 
 Project structure, pydantic-settings config layer, minimal Typer CLI (`ark version`, `ark status`, `ark config`), docs, deployment placeholders, offline smoke tests.

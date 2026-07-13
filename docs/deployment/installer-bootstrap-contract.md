@@ -285,7 +285,7 @@ Flags: `--llama-build`, `--no-llama-build`, `--llama-repo`, `--llama-ref`, `--ll
 
 Post-install output is **role-specific**. The installer prints one-liner env examples and follow-up checks matching the selected role.
 
-**`rag`:** load `/etc/ark-pi/ark-rag.env`, `ark preflight`, `ark llm status`, RAG API curl checks on port 8000.
+**`rag`:** load `/etc/ark-pi/ark-rag.env`, `ark preflight`, `ark llm status`, RAG API curl checks on port 8000. For explicit RAG-to-LLM network validation (not run during installer validation), use `ark appliance smoke --env-file /etc/ark-pi/ark-rag.env`.
 
 **`llm`:** load `/etc/ark-pi/ark-llm.env`, `ark preflight`, `systemctl status ark-llm.service`, model/binary path checks. Do **not** print RAG port-8000 curl commands for llm-only installs. If `$MODEL_PATH` is missing, tell the operator to place a GGUF before `sudo systemctl start ark-llm.service`.
 
@@ -304,6 +304,42 @@ sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bi
 curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/api/status
 ```
+
+Explicit RAG-to-LLM network validation (operator-initiated; not part of installer validation):
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance smoke --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+Explicit end-to-end RAG ask validation (operator-initiated; performs network and LLM activity; not part of installer validation):
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+`ark appliance ask-smoke` writes only to the dedicated smoke namespace (`ark-pi-smoke-beacon.txt` source and `ark-smoke` index). By default it removes those artifacts after the run. Pass `--keep` to preserve them for debugging. User indexes and source files outside that namespace are not modified or deleted.
+
+### Validation receipts
+
+`install.sh` can write an offline receipt after validation:
+
+```bash
+sh install.sh --role rag --validate-only --receipt-path /tmp/ark-rag-receipt.json ...
+sh install.sh --role llm --validate-only --receipt-path /tmp/ark-llm-receipt.json --receipt-hash-model ...
+```
+
+Flags: `--receipt-path PATH`, `--receipt-dir DIR`, `--receipt-hash-model`. No receipt is written unless a receipt flag is passed. `--dry-run` never writes a receipt. Installer receipts remain offline and do not run `--run-smoke` or `--run-ask-smoke`.
+
+Manual receipt examples:
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-rag.env --output /tmp/ark-rag-receipt.json
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-llm.env --hash-model --output /tmp/ark-llm-receipt.json
+```
+
+Receipt schema: `schema_name=ark-pi-appliance-receipt`, `schema_version=1`. Output uses an allowlisted configuration snapshot. Secrets, complete environment files, full prompts, and retrieved source bodies are not emitted. URL userinfo is redacted. Model SHA256 is included only when `--hash-model` or `--receipt-hash-model` is passed.
 
 Example LLM checks (role `llm` or `both`):
 

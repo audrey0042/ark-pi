@@ -3303,3 +3303,82 @@ def test_llm_download_writes_model_under_data_dir_not_prefix(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     assert (data_dir / "models" / "model.gguf").is_file()
     assert not (prefix / "models").exists()
+
+
+def test_validate_only_receipt_path_writes_receipt(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    receipt_path = tmp_path / "receipt.json"
+    command_log = tmp_path / "commands.log"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--receipt-path", str(receipt_path)],
+        command_log=command_log,
+    )
+    assert result.returncode == 0, result.stderr
+    assert receipt_path.is_file()
+    assert "[pass] receipt" in result.stdout
+    log = read_command_log(command_log)
+    assert "appliance receipt" in log
+
+
+def test_validate_only_receipt_dir_writes_receipt(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path)
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    receipt_dir = tmp_path / "receipts"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--receipt-dir", str(receipt_dir)],
+    )
+    assert result.returncode == 0, result.stderr
+    assert list(receipt_dir.glob("*.json"))
+    assert "[pass] receipt" in result.stdout
+
+
+def test_dry_run_receipt_path_writes_nothing(tmp_path: Path) -> None:
+    receipt_path = tmp_path / "receipt.json"
+    env = fake_helper_env(REPO_ROOT)
+    result = run_install(
+        "--role",
+        "rag",
+        "--dry-run",
+        "--receipt-path",
+        str(receipt_path),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not receipt_path.exists()
+
+
+def test_validate_only_receipt_failure_fails_validation(tmp_path: Path) -> None:
+    install = _run_rag_install(tmp_path, extra_env={"ARK_INSTALL_RECEIPT_FAIL": "1"})
+    assert install.returncode == 0, install.stderr
+    prefix = tmp_path / "prefix"
+    data_dir = tmp_path / "data"
+    generated = data_dir / "deploy" / "generated"
+    receipt_path = tmp_path / "receipt.json"
+    result = _validate_only(
+        tmp_path,
+        "rag",
+        prefix=prefix,
+        data_dir=data_dir,
+        generated=generated,
+        extra_args=["--receipt-path", str(receipt_path)],
+        extra_env={"ARK_INSTALL_RECEIPT_FAIL": "1"},
+    )
+    assert result.returncode != 0
+    assert "[fail] receipt" in result.stdout

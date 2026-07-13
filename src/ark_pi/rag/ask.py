@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ark_pi import config as ark_config
+from ark_pi.config import ArkSettings
 from ark_pi.llm_client import LlmRequest, create_llm_client
 from ark_pi.rag import index as rag_index
 from ark_pi.rag import prompting
@@ -30,6 +31,8 @@ def run_ask(
     llm_base_url: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    settings: ArkSettings | None = None,
+    timeout_seconds: float | None = None,
 ) -> AskResult:
     """Search the index, assemble a prompt, and call the configured LLM backend."""
     stripped_question = question.strip()
@@ -37,14 +40,20 @@ def run_ask(
         msg = "Question must not be empty."
         raise ValueError(msg)
 
-    settings = ark_config.get_settings()
-    resolved_max_tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
-    resolved_temperature = temperature if temperature is not None else settings.llm_temperature
+    resolved_settings = settings if settings is not None else ark_config.get_settings()
+    resolved_max_tokens = (
+        max_tokens if max_tokens is not None else resolved_settings.llm_max_tokens
+    )
+    resolved_temperature = (
+        temperature if temperature is not None else resolved_settings.llm_temperature
+    )
     if resolved_temperature < 0:
         msg = "temperature must be >= 0."
         raise ValueError(msg)
 
-    resolved_llm_backend = llm_backend if llm_backend is not None else settings.llm_backend
+    resolved_llm_backend = (
+        llm_backend if llm_backend is not None else resolved_settings.llm_backend
+    )
 
     results = rag_index.search_index(
         index_dir,
@@ -64,16 +73,23 @@ def run_ask(
         )
 
     prompt = prompting.build_rag_prompt(stripped_question, results)
-    base_url = llm_base_url if llm_base_url is not None else settings.llm_base_url
+    base_url = (
+        llm_base_url if llm_base_url is not None else resolved_settings.llm_base_url
+    )
+    resolved_timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else resolved_settings.llm_timeout_seconds
+    )
     client = create_llm_client(
         resolved_llm_backend,
         base_url=base_url if resolved_llm_backend == "openai-compatible" else None,
-        timeout_seconds=settings.llm_timeout_seconds,
+        timeout_seconds=resolved_timeout,
     )
     response = client.complete(
         LlmRequest(
             prompt=prompt,
-            model=settings.llm_model,
+            model=resolved_settings.llm_model,
             max_tokens=resolved_max_tokens,
             temperature=resolved_temperature,
         )

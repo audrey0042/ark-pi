@@ -50,6 +50,9 @@ Open http://127.0.0.1:8000/. Copy `.env.example` to `.env` if you want non-defau
 | `ark workspace list` | List workspace indexes |
 | `ark llm status` | Show LLM config (no network call) |
 | `ark llm test --llm-backend mock` | Hit the mock backend |
+| `ark appliance smoke --env-file /etc/ark-pi/ark-rag.env` | Validate RAG-to-LLM link (network test) |
+| `ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env` | End-to-end RAG ask smoke (isolated tiny corpus) |
+| `ark appliance receipt --env-file /etc/ark-pi/ark-rag.env` | Offline validation receipt (JSON evidence) |
 | `ark deploy render --output-dir /path/to/deploy-render --force` | Write example env/systemd templates |
 
 Low-level chunk/index debugging: `ark ingest chunk`, `ark index`, `ark ask`. See [docs/architecture.md](docs/architecture.md).
@@ -91,6 +94,33 @@ On a real **rag-pi** install (Raspberry Pi 5 / Debian 13 trixie), `ark-rag.servi
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark preflight'
 sudo sh -c 'set -a; . /etc/ark-pi/ark-rag.env; set +a; exec /opt/ark-pi/.venv/bin/ark llm status'
 ```
+
+For an explicit RAG-to-LLM network smoke test (contacts the configured OpenAI-compatible backend and validates the `ark-pi-ok` diagnostic response):
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance smoke --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+Unlike passive `ark llm status`, `ark appliance smoke` performs a real LLM request. Use it after install to confirm the RAG Pi can reach the LLM Pi.
+
+For a full end-to-end RAG validation (ingest, index, retrieval, prompt assembly, and LLM generation), use `ark appliance ask-smoke`. It seeds an isolated tiny corpus with a deterministic beacon phrase (`copper lantern`), runs the normal ask pipeline against the `ark-smoke` index, and cleans up by default:
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env
+sudo /opt/ark-pi/.venv/bin/ark appliance ask-smoke --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+Use `--keep` to preserve the isolated smoke source and index for debugging. Unlike `ark appliance smoke`, ask-smoke proves retrieval and `/api/ask`-equivalent generation, not just LLM connectivity.
+
+For a portable validation receipt (offline by default), use `ark appliance receipt`:
+
+```bash
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-rag.env --output /tmp/ark-rag-receipt.json
+sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-rag.env --run-smoke --run-ask-smoke --output /tmp/ark-rag-active-receipt.json
+```
+
+Receipts are observational unless you pass `--run-smoke` or `--run-ask-smoke`. Use `--hash-model` on LLM Pi to include a full model SHA256.
 
 With `--install-services`, installer validation prefers `/etc/ark-pi/ark-rag.env` (or `--service-root` equivalent) and uses read-only `sudo cat` when the env file is not readable unprivileged. Without `--install-services`, validation prefers `$GENERATED_DIR/ark-rag.env` (no sudo).
 

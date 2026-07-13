@@ -173,6 +173,47 @@ if [ "$1" = "deploy" ] && [ "$2" = "render" ]; then
   fi
   exit 0
 fi
+if [ "$1" = "appliance" ] && [ "$2" = "receipt" ]; then
+  log_cmd "$@"
+  if [ "${ARK_INSTALL_RECEIPT_FAIL:-0}" = "1" ]; then
+    echo "fake appliance receipt failed" >&2
+    exit 1
+  fi
+  _output=""
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --output)
+        _output="$2"
+        shift 2
+        ;;
+      --output=*)
+        _output="${1#*=}"
+        shift
+        ;;
+      --receipt-dir)
+        _dir="$2"
+        mkdir -p "$_dir"
+        _output="$_dir/ark-pi-receipt-test.json"
+        shift 2
+        ;;
+      --receipt-dir=*)
+        _dir="${1#*=}"
+        mkdir -p "$_dir"
+        _output="$_dir/ark-pi-receipt-test.json"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  if [ -n "$_output" ]; then
+    mkdir -p "$(dirname "$_output")"
+    printf '%s\n' '{"schema_name":"ark-pi-appliance-receipt","schema_version":1,"overall_status":"warning"}' > "$_output"
+  fi
+  exit 0
+fi
 exit 0
 EOF
   chmod +x "$_venv/bin/ark"

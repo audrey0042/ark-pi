@@ -28,6 +28,9 @@ VALIDATE_ONLY=0
 NO_VALIDATE=0
 VALIDATION_FAILED=0
 VALIDATION_WARNED=0
+RECEIPT_PATH=""
+RECEIPT_DIR=""
+RECEIPT_HASH_MODEL=0
 
 LLAMA_BUILD=0
 NO_LLAMA_BUILD=0
@@ -102,6 +105,9 @@ Options:
   --no-start                Skip systemctl start (when installing to /)
   --validate-only           Validate an existing install; no mutations
   --no-validate             Skip post-install validation after real install
+  --receipt-path PATH       Write offline validation receipt JSON to PATH
+  --receipt-dir DIR         Write timestamped offline receipt JSON under DIR
+  --receipt-hash-model      Include full model SHA256 in installer receipt
   --llama-build             Clone and build llama.cpp (role llm or both only)
   --no-llama-build          Explicitly skip llama.cpp build
   --llama-repo URL          llama.cpp git repository
@@ -213,6 +219,26 @@ parse_args() {
         ;;
       --no-validate)
         NO_VALIDATE=1
+        shift
+        ;;
+      --receipt-path)
+        RECEIPT_PATH="$2"
+        shift 2
+        ;;
+      --receipt-path=*)
+        RECEIPT_PATH="${1#*=}"
+        shift
+        ;;
+      --receipt-dir)
+        RECEIPT_DIR="$2"
+        shift 2
+        ;;
+      --receipt-dir=*)
+        RECEIPT_DIR="${1#*=}"
+        shift
+        ;;
+      --receipt-hash-model)
+        RECEIPT_HASH_MODEL=1
         shift
         ;;
       --llama-build)
@@ -2637,8 +2663,49 @@ finalize_validation() {
   return 0
 }
 
+generate_validation_receipt() {
+  if [ -z "$RECEIPT_PATH" ] && [ -z "$RECEIPT_DIR" ]; then
+    return 0
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
+  _ark=$(map_install_path "$PREFIX")/.venv/bin/ark
+  if [ ! -x "$_ark" ]; then
+    record_validation_check receipt fail "ark CLI missing for receipt generation: $_ark"
+    return 1
+  fi
+  _receipt_role="$ROLE"
+  case "$ROLE" in
+    both) _receipt_role="rag" ;;
+  esac
+  if ! resolve_validation_env_file "$_receipt_role"; then
+    record_validation_check receipt fail "cannot resolve env file for receipt (role $_receipt_role)"
+    return 1
+  fi
+  _env_file=$(validation_env_read_path "$VALIDATION_RESOLVED_ENV_FILE")
+  _cmd="$_ark appliance receipt --env-file $_env_file"
+  if [ "$RECEIPT_HASH_MODEL" -eq 1 ]; then
+    _cmd="$_cmd --hash-model"
+  fi
+  if [ -n "$RECEIPT_PATH" ]; then
+    _mapped_receipt=$(map_install_path "$RECEIPT_PATH")
+    _cmd="$_cmd --output $_mapped_receipt"
+  elif [ -n "$RECEIPT_DIR" ]; then
+    _mapped_dir=$(map_install_path "$RECEIPT_DIR")
+    _cmd="$_cmd --receipt-dir $_mapped_dir"
+  fi
+  if $_cmd >/dev/null 2>&1; then
+    record_validation_check receipt pass "validation receipt written"
+    return 0
+  fi
+  record_validation_check receipt fail "validation receipt generation failed"
+  return 1
+}
+
 run_validation() {
   run_validation_checks
+  generate_validation_receipt
   finalize_validation
 }
 

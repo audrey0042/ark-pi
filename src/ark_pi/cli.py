@@ -12,6 +12,13 @@ from ark_pi import config as ark_config
 from ark_pi import init as ark_init
 from ark_pi import preflight as ark_preflight
 from ark_pi import quickstart as ark_quickstart
+from ark_pi.appliance_ask_smoke import appliance_ask_smoke_to_dict, run_appliance_ask_smoke
+from ark_pi.appliance_receipt import (
+    collect_appliance_receipt,
+    resolve_receipt_output_path,
+    write_receipt_atomic,
+)
+from ark_pi.appliance_smoke import appliance_smoke_to_dict, run_appliance_smoke
 from ark_pi.deploy import templates as deploy_templates
 from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
 from ark_pi.deploy.bundle_verify import bundle_verify_result_to_dict, verify_deployment_bundle
@@ -45,11 +52,13 @@ index_app = typer.Typer(help="Local index commands")
 workspace_app = typer.Typer(help="Workspace index commands")
 llm_app = typer.Typer(help="LLM client commands")
 deploy_app = typer.Typer(help="Deployment template commands")
+appliance_app = typer.Typer(help="Appliance validation commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(llm_app, name="llm")
 app.add_typer(deploy_app, name="deploy")
+app.add_typer(appliance_app, name="appliance")
 console = Console()
 
 
@@ -698,6 +707,237 @@ def llm_test_cmd(
     table.add_row("output_text", result.output_text)
     table.add_row("message", result.message)
     console.print(table)
+
+
+@appliance_app.command("smoke")
+def appliance_smoke_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    llm_base_url: str | None = typer.Option(
+        None,
+        "--llm-base-url",
+        help="Override LLM base URL for the smoke test",
+    ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        help="Override LLM timeout in seconds",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON receipt"),
+) -> None:
+    """Validate RAG-to-LLM connectivity with an explicit network smoke test."""
+    try:
+        result = run_appliance_smoke(
+            env_file=env_file,
+            llm_base_url=llm_base_url,
+            timeout_seconds=timeout,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except LlmClientError as exc:
+        _handle_llm_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(appliance_smoke_to_dict(result)))
+    else:
+        table = Table(title="Appliance Smoke Result")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("role", result.role)
+        table.add_row("llm_backend", result.backend)
+        table.add_row("model", result.model)
+        table.add_row("base_url", result.base_url or "")
+        table.add_row("timeout_seconds", str(result.timeout_seconds))
+        table.add_row("ok", str(result.ok))
+        table.add_row("latency_ms", str(result.latency_ms))
+        table.add_row("output_text", result.output_text)
+        table.add_row("message", result.message)
+        console.print(table)
+
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+@appliance_app.command("ask-smoke")
+def appliance_ask_smoke_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        help="Override LLM timeout in seconds",
+    ),
+    keep: bool = typer.Option(
+        False,
+        "--keep",
+        help="Preserve isolated smoke corpus and index after the run",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON receipt"),
+) -> None:
+    """Run an isolated end-to-end RAG ask smoke test through the configured LLM."""
+    try:
+        result = run_appliance_ask_smoke(
+            env_file=env_file,
+            timeout_seconds=timeout,
+            keep=keep,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(appliance_ask_smoke_to_dict(result)))
+    else:
+        table = Table(title="Appliance Ask Smoke Result")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("ok", str(result.ok))
+        table.add_row("role", result.role)
+        table.add_row("index_backend", result.index_backend)
+        table.add_row("index_slug", result.index_slug)
+        table.add_row("source_path", result.source_path)
+        table.add_row("question", result.question)
+        table.add_row("retrieval_ok", str(result.retrieval_ok))
+        table.add_row("retrieved_result_count", str(result.retrieved_result_count))
+        table.add_row("retrieved_context_preview", result.retrieved_context_preview)
+        table.add_row("llm_ok", str(result.llm_ok))
+        table.add_row("answer", result.answer)
+        table.add_row("expected_phrase", result.expected_phrase)
+        table.add_row("latency_ms", str(result.latency_ms))
+        table.add_row("cleanup_performed", str(result.cleanup_performed))
+        if result.cleanup_error is not None:
+            table.add_row("cleanup_error", result.cleanup_error)
+        table.add_row("message", result.message)
+        console.print(table)
+
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+@appliance_app.command("receipt")
+def appliance_receipt_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print receipt JSON to stdout"),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Write receipt JSON atomically to PATH",
+    ),
+    receipt_dir: Path | None = typer.Option(
+        None,
+        "--receipt-dir",
+        help="Write a timestamped receipt JSON file under DIR",
+    ),
+    run_smoke: bool = typer.Option(
+        False,
+        "--run-smoke",
+        help="Run connectivity smoke and embed the result (network activity)",
+    ),
+    run_ask_smoke: bool = typer.Option(
+        False,
+        "--run-ask-smoke",
+        help="Run end-to-end ask smoke and embed the result",
+    ),
+    keep_smoke_artifacts: bool = typer.Option(
+        False,
+        "--keep-smoke-artifacts",
+        help="Preserve ask-smoke artifacts when --run-ask-smoke is used",
+    ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        help="Override timeout for active smoke operations",
+    ),
+    hash_model: bool = typer.Option(
+        False,
+        "--hash-model",
+        help="Include full model SHA256 in the receipt",
+    ),
+    fail_on_warning: bool = typer.Option(
+        False,
+        "--fail-on-warning",
+        help="Exit nonzero when overall status is warning",
+    ),
+    allow_smoke_failure: bool = typer.Option(
+        False,
+        "--allow-smoke-failure",
+        help="Exit zero even when an explicitly requested smoke check fails",
+    ),
+) -> None:
+    """Collect a structured appliance validation receipt (offline by default)."""
+    try:
+        result = collect_appliance_receipt(
+            env_file=env_file,
+            hash_model=hash_model,
+            run_smoke=run_smoke,
+            run_ask_smoke=run_ask_smoke,
+            keep_smoke_artifacts=keep_smoke_artifacts,
+            timeout_seconds=timeout,
+            allow_smoke_failure=allow_smoke_failure,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    output_path = resolve_receipt_output_path(output=output, receipt_dir=receipt_dir)
+    if output_path is not None:
+        write_receipt_atomic(output_path, result.payload)
+        result = type(result)(
+            payload=result.payload,
+            overall_status=result.overall_status,
+            output_path=output_path,
+        )
+
+    if as_json:
+        console.print_json(json.dumps(result.payload))
+    else:
+        table = Table(title="Appliance Validation Receipt")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("overall_status", result.overall_status)
+        table.add_row("role", str(result.payload["configuration"]["role"]))
+        table.add_row("schema", f"{result.payload['schema_name']} v{result.payload['schema_version']}")
+        table.add_row(
+            "connectivity_smoke",
+            str(result.payload["active_smoke"]["connectivity"]["status"]),
+        )
+        table.add_row("ask_smoke", str(result.payload["active_smoke"]["ask"]["status"]))
+        if result.output_path is not None:
+            table.add_row("output_path", str(result.output_path))
+        if result.payload["warnings"]:
+            table.add_row("warnings", "; ".join(result.payload["warnings"]))
+        if result.payload["next_steps"]:
+            table.add_row("next_steps", result.payload["next_steps"][0])
+        console.print(table)
+        if len(result.payload["next_steps"]) > 1:
+            for step in result.payload["next_steps"][1:]:
+                console.print(f"- {step}")
+        if result.output_path is not None and not as_json:
+            console.print(f"Receipt written to {result.output_path}")
+
+    if result.overall_status == "fail":
+        static_fail = any(
+            check.get("status") == "fail" for check in result.payload["checks"]
+        )
+        smoke_failed = (
+            result.payload["active_smoke"]["connectivity"].get("status") == "fail"
+            or result.payload["active_smoke"]["ask"].get("status") == "fail"
+        )
+        if not (allow_smoke_failure and smoke_failed and not static_fail):
+            raise typer.Exit(code=1)
+    elif result.overall_status == "warning" and fail_on_warning:
+        raise typer.Exit(code=1)
 
 
 @llm_app.command("mock")
