@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <siteinfo>
+    <sitename>Simple English Wikipedia</sitename>
+    <base>https://simple.wikipedia.org/wiki/Main_Page</base>
+  </siteinfo>
+  <page>
+    <title>Fixture article</title>
+    <ns>0</ns>
+    <id>1001</id>
+    <revision>
+      <id>5001</id>
+      <timestamp>2026-07-01T12:34:56Z</timestamp>
+      <sha1>fixturearticlehash</sha1>
+      <text xml:space="preserve">== Opening ==
+
+This is a [[Fixture article|fixture article phrase]] for corpus testing.
+
+* First list item with enough prose to pass the minimum text threshold easily.
+* Second list item mentions [https://example.test external label] links.
+
+{{Nested template|{{Inner template|remove me}}|keep outer label}}
+
+{| class="wikitable"
+|-
+| Table cell noise
+|}
+
+&lt;ref&gt;Reference body&lt;/ref&gt;
+
+See also [[Category:Hidden category]]. [[File:Example.png|thumb|caption]]
+</text>
+    </revision>
+  </page>
+  <page>
+    <title>Talk:Fixture article</title>
+    <ns>1</ns>
+    <id>1002</id>
+    <revision>
+      <id>5002</id>
+      <timestamp>2026-07-01T12:35:00Z</timestamp>
+      <text xml:space="preserve">Talk page content that should be skipped by default namespace filter.</text>
+    </revision>
+  </page>
+  <page>
+    <title>Short stub</title>
+    <ns>0</ns>
+    <id>1003</id>
+    <revision>
+      <id>5003</id>
+      <timestamp>2026-07-01T12:36:00Z</timestamp>
+      <text xml:space="preserve">Too short.</text>
+    </revision>
+  </page>
+  <page>
+    <title>Redirect example</title>
+    <ns>0</ns>
+    <id>1004</id>
+    <redirect title="Fixture article" />
+    <revision>
+      <id>5004</id>
+      <timestamp>2026-07-01T12:37:00Z</timestamp>
+      <text xml:space="preserve">#REDIRECT [[Fixture article]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>User:Example</title>
+    <ns>2</ns>
+    <id>1005</id>
+    <revision>
+      <id>5005</id>
+      <timestamp>2026-07-01T12:38:00Z</timestamp>
+      <text xml:space="preserve">User namespace page with plenty of text that should still be skipped because namespace 2 is not included by default.</text>
+    </revision>
+  </page>
+</mediawiki>

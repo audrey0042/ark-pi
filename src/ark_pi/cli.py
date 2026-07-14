@@ -19,6 +19,28 @@ from ark_pi.appliance_receipt import (
     write_receipt_atomic,
 )
 from ark_pi.appliance_smoke import appliance_smoke_to_dict, run_appliance_smoke
+from ark_pi.corpus.ingest import (
+    CorpusIngestError,
+    CorpusIngestInterrupted,
+    run_corpus_dry_run,
+    run_corpus_ingest,
+)
+from ark_pi.corpus.status import CorpusStatusError, get_corpus_status
+from ark_pi.corpus.types import (
+    CorpusIngestOptions,
+    dry_run_result_to_dict,
+    ingest_result_to_dict,
+    status_result_to_dict,
+)
+from ark_pi.corpus.wikipedia import (
+    PrepareWikipediaOptions,
+    WikipediaPrepareError,
+    WikipediaPrepareInterrupted,
+    dry_run_result_to_dict as prepare_dry_run_result_to_dict,
+    prepare_wikipedia_result_to_dict,
+    run_prepare_wikipedia,
+    run_prepare_wikipedia_dry_run,
+)
 from ark_pi.deploy import templates as deploy_templates
 from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
 from ark_pi.deploy.bundle_verify import bundle_verify_result_to_dict, verify_deployment_bundle
@@ -53,12 +75,14 @@ workspace_app = typer.Typer(help="Workspace index commands")
 llm_app = typer.Typer(help="LLM client commands")
 deploy_app = typer.Typer(help="Deployment template commands")
 appliance_app = typer.Typer(help="Appliance validation commands")
+corpus_app = typer.Typer(help="Bulk corpus ingestion commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(llm_app, name="llm")
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(appliance_app, name="appliance")
+app.add_typer(corpus_app, name="corpus")
 console = Console()
 
 
@@ -1478,6 +1502,373 @@ def preflight(
 
     if result.overall_status == "blocked":
         raise typer.Exit(code=1)
+
+
+def _resolve_workspace_dir(
+    workspace_dir: Path | None,
+    settings: ark_config.ArkSettings,
+) -> Path:
+    if workspace_dir is not None:
+        return workspace_dir.expanduser().resolve()
+    return settings.workspace_dir.expanduser().resolve()
+
+
+def _handle_corpus_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _corpus_progress(message: str) -> None:
+    typer.echo(message, err=True)
+
+
+@corpus_app.command("ingest")
+def corpus_ingest(
+    source: Path = typer.Argument(..., help="JSONL file or directory of .txt files"),
+    index: str = typer.Option(..., "--index", help="Destination workspace index slug"),
+    workspace_dir: Path | None = typer.Option(
+        None,
+        "--workspace-dir",
+        help="Workspace directory (default: ARK_WORKSPACE_DIR)",
+    ),
+    batch_size: int = typer.Option(100, "--batch-size", min=1),
+    chunk_size: int = typer.Option(1000, "--chunk-size", min=1),
+    chunk_overlap: int = typer.Option(200, "--chunk-overlap", min=0),
+    backend: IndexBackendOption = typer.Option(
+        IndexBackendOption.simple,
+        "--backend",
+        help="Index backend (simple required for corpus ingest)",
+    ),
+    resume: bool = typer.Option(False, "--resume", help="Resume from checkpoint"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Override run identifier"),
+    force_rebuild: bool = typer.Option(
+        False,
+        "--force-rebuild",
+        help="Discard run state and destination index",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate and plan without writes"),
+    continue_on_error: bool = typer.Option(
+        False,
+        "--continue-on-error",
+        help="Record failures and continue",
+    ),
+    show_status: bool = typer.Option(
+        False,
+        "--status",
+        help="Show status for this run instead of ingesting",
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Confirm destructive operations"),
+    as_json: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+) -> None:
+    """Ingest a bulk corpus into a named workspace index."""
+    settings = ark_config.get_settings()
+    resolved_workspace = _resolve_workspace_dir(workspace_dir, settings)
+
+    if show_status:
+        try:
+            status = get_corpus_status(resolved_workspace, run_id=run_id)
+        except CorpusStatusError as exc:
+            _handle_corpus_errors(exc)
+        if as_json:
+            console.print_json(json.dumps(status_result_to_dict(status)))
+            return
+        table = Table(title="Corpus Run Status")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Run ID", status.run_id)
+        table.add_row("Index", status.index_slug)
+        table.add_row("Status", status.status.value)
+        table.add_row("Completed", str(status.records_completed))
+        table.add_row("Failed", str(status.records_failed))
+        table.add_row("Chunks", str(status.chunks_written))
+        if status.progress_percent is not None:
+            table.add_row("Progress", f"{status.progress_percent}%")
+        table.add_row("Updated", status.updated_at)
+        table.add_row("Resume", status.resume_command)
+        console.print(table)
+        return
+
+    options = CorpusIngestOptions(
+        source_path=source,
+        index_slug=index,
+        workspace_dir=resolved_workspace,
+        batch_size=batch_size,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        backend=backend.value,
+        resume=resume,
+        run_id=run_id,
+        force_rebuild=force_rebuild,
+        dry_run=dry_run,
+        continue_on_error=continue_on_error,
+        yes=yes,
+    )
+
+    if dry_run:
+        try:
+            dry = run_corpus_dry_run(options)
+        except CorpusIngestError as exc:
+            _handle_corpus_errors(exc)
+        if as_json:
+            console.print_json(json.dumps(dry_run_result_to_dict(dry)))
+            return
+        table = Table(title="Corpus Ingest Dry Run")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Run ID", dry.run_id)
+        table.add_row("Index", dry.index_slug)
+        table.add_row("Source", dry.source)
+        table.add_row("Format", dry.source_format.value)
+        table.add_row("Fingerprint", dry.source_fingerprint.fingerprint[:16] + "...")
+        if dry.estimated_records is not None:
+            table.add_row("Estimated records", str(dry.estimated_records))
+        table.add_row("Run directory", str(dry.run_dir))
+        table.add_row("Batch size", str(dry.batch_size))
+        console.print(table)
+        return
+
+    try:
+        result = run_corpus_ingest(
+            options,
+            progress_callback=_corpus_progress if not as_json else None,
+        )
+    except CorpusIngestInterrupted as exc:
+        result = exc.result
+        if as_json:
+            console.print_json(json.dumps(ingest_result_to_dict(result)))
+        else:
+            typer.echo(result.message, err=True)
+        raise typer.Exit(code=2) from exc
+    except CorpusIngestError as exc:
+        _handle_corpus_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(ingest_result_to_dict(result)))
+    else:
+        table = Table(title="Corpus Ingest Summary")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Run ID", result.run_id)
+        table.add_row("Index", result.index_slug)
+        table.add_row("Status", result.status.value)
+        table.add_row("Documents completed", str(result.records_completed))
+        table.add_row("Documents failed", str(result.records_failed))
+        table.add_row("Chunks written", str(result.chunks_written))
+        table.add_row("Elapsed (s)", f"{result.elapsed_seconds:.1f}")
+        table.add_row("Checkpoint", str(result.checkpoint_path))
+        if result.partial:
+            table.add_row("Resume", result.resume_command)
+        console.print(table)
+
+    if result.partial or result.records_failed > 0:
+        raise typer.Exit(code=2)
+    if result.status.value in ("interrupted", "failed"):
+        raise typer.Exit(code=2)
+
+
+@corpus_app.command("status")
+def corpus_status(
+    workspace_dir: Path | None = typer.Option(
+        None,
+        "--workspace-dir",
+        help="Workspace directory (default: ARK_WORKSPACE_DIR)",
+    ),
+    run_id: str | None = typer.Option(None, "--run-id", help="Corpus run identifier"),
+    as_json: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+) -> None:
+    """Show read-only status for a corpus ingest run."""
+    settings = ark_config.get_settings()
+    resolved_workspace = _resolve_workspace_dir(workspace_dir, settings)
+    try:
+        status = get_corpus_status(resolved_workspace, run_id=run_id)
+    except CorpusStatusError as exc:
+        _handle_corpus_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(status_result_to_dict(status)))
+        return
+
+    table = Table(title="Corpus Run Status")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("Run ID", status.run_id)
+    table.add_row("Source", status.source)
+    table.add_row("Index", status.index_slug)
+    table.add_row("Status", status.status.value)
+    table.add_row("Seen", str(status.records_seen))
+    table.add_row("Completed", str(status.records_completed))
+    table.add_row("Failed", str(status.records_failed))
+    table.add_row("Chunks", str(status.chunks_written))
+    if status.progress_percent is not None:
+        table.add_row("Progress", f"{status.progress_percent}%")
+    table.add_row("Updated", status.updated_at)
+    table.add_row("Resume", status.resume_command)
+    console.print(table)
+
+
+@corpus_app.command("prepare-wikipedia")
+def corpus_prepare_wikipedia(
+    input_path: Path = typer.Argument(..., help="Local MediaWiki XML, .xml.gz, or .xml.bz2 dump"),
+    output: Path = typer.Option(..., "--output", help="Final canonical JSONL output path"),
+    project: str = typer.Option("simplewiki", "--project", help="Source project identifier"),
+    base_url: str = typer.Option(
+        "https://simple.wikipedia.org/wiki/",
+        "--base-url",
+        help="Base article URL for provenance",
+    ),
+    source_url: str | None = typer.Option(
+        None,
+        "--source-url",
+        help="Original URL from which the dump was obtained",
+    ),
+    dump_date: str | None = typer.Option(None, "--dump-date", help="Known dump date (YYYYMMDD)"),
+    namespace: list[int] = typer.Option(
+        [0],
+        "--namespace",
+        help="Include only selected MediaWiki namespaces (repeatable)",
+    ),
+    include_redirects: bool = typer.Option(
+        False,
+        "--include-redirects",
+        help="Emit redirect pages instead of skipping them",
+    ),
+    min_text_chars: int = typer.Option(
+        100,
+        "--min-text-chars",
+        min=0,
+        help="Skip normalized articles shorter than this threshold",
+    ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        min=1,
+        help="Stop after emitting this many records",
+    ),
+    resume: bool = typer.Option(False, "--resume", help="Resume a compatible interrupted run"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Replace existing output and preparation state",
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Confirm destructive --force without prompt"),
+    checkpoint_every: int = typer.Option(
+        1000,
+        "--checkpoint-every",
+        min=1,
+        help="Persist preparation state after this many scanned pages",
+    ),
+    continue_on_page_error: bool = typer.Option(
+        False,
+        "--continue-on-page-error",
+        help="Record page errors and continue processing",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate source and print plan only"),
+    expected_sha1: str | None = typer.Option(
+        None,
+        "--expected-sha1",
+        help="Verify compressed dump SHA-1 before processing",
+    ),
+    expected_sha256: str | None = typer.Option(
+        None,
+        "--expected-sha256",
+        help="Verify compressed dump SHA-256 before processing",
+    ),
+    checksum_file: Path | None = typer.Option(
+        None,
+        "--checksum-file",
+        help="Wikimedia-style checksum list matching input basename",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+) -> None:
+    """Normalize a local MediaWiki pages-articles dump to canonical corpus JSONL."""
+    options = PrepareWikipediaOptions(
+        input_path=input_path,
+        output_path=output,
+        project=project,
+        base_url=base_url,
+        source_url=source_url,
+        dump_date=dump_date,
+        namespace_filters=tuple(namespace),
+        include_redirects=include_redirects,
+        min_text_chars=min_text_chars,
+        limit=limit,
+        resume=resume,
+        force=force,
+        yes=yes,
+        checkpoint_every=checkpoint_every,
+        continue_on_page_error=continue_on_page_error,
+        dry_run=dry_run,
+        expected_sha1=expected_sha1,
+        expected_sha256=expected_sha256,
+        checksum_file=checksum_file,
+    )
+
+    if dry_run:
+        try:
+            dry = run_prepare_wikipedia_dry_run(options)
+        except WikipediaPrepareError as exc:
+            _handle_corpus_errors(exc)
+        if as_json:
+            console.print_json(json.dumps(prepare_dry_run_result_to_dict(dry)))
+            return
+        table = Table(title="Wikipedia Preparation Dry Run")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Input", dry.input_path)
+        table.add_row("Output", dry.output_path)
+        table.add_row("Project", dry.project)
+        table.add_row("Namespaces", ", ".join(str(n) for n in dry.namespace_filters))
+        table.add_row("Fingerprint", dry.input_fingerprint.sha256[:16] + "...")
+        table.add_row("Checkpoint", str(dry.checkpoint_path))
+        table.add_row("Message", dry.message)
+        console.print(table)
+        return
+
+    try:
+        result = run_prepare_wikipedia(
+            options,
+            progress_callback=_corpus_progress if not as_json else None,
+        )
+    except WikipediaPrepareInterrupted as exc:
+        result = exc.result
+        if as_json:
+            console.print_json(json.dumps(prepare_wikipedia_result_to_dict(result)))
+        else:
+            typer.echo(result.message, err=True)
+        raise typer.Exit(code=2) from exc
+    except WikipediaPrepareError as exc:
+        _handle_corpus_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(prepare_wikipedia_result_to_dict(result)))
+    else:
+        table = Table(title="Wikipedia Preparation Summary")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Input", result.input_path)
+        table.add_row("Output", result.output_path)
+        table.add_row("Project", result.project)
+        table.add_row("Status", result.status.value)
+        table.add_row("Pages scanned", str(result.pages_scanned))
+        table.add_row("Records emitted", str(result.records_emitted))
+        table.add_row("Redirects skipped", str(result.redirects_skipped))
+        table.add_row("Namespace skipped", str(result.namespace_pages_skipped))
+        table.add_row("Short pages skipped", str(result.short_pages_skipped))
+        table.add_row("Page errors", str(result.page_errors))
+        table.add_row("Elapsed (s)", f"{result.elapsed_seconds:.1f}")
+        table.add_row("Checkpoint", str(result.checkpoint_path))
+        if result.manifest_path is not None:
+            table.add_row("Manifest", str(result.manifest_path))
+        if result.partial:
+            table.add_row("Resume", result.resume_command)
+        else:
+            table.add_row("Ingest", result.ingest_command)
+        console.print(table)
+
+    if result.partial or result.page_errors > 0:
+        raise typer.Exit(code=2)
+    if result.status.value in ("interrupted", "failed"):
+        raise typer.Exit(code=2)
 
 
 def main() -> None:

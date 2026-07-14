@@ -179,6 +179,65 @@ def _dispatch_search(backend: str, index_dir: Path, query: str, *, limit: int) -
             raise IndexConfigurationError(msg)
 
 
+def _chunk_records_to_documents(records: list[dict[str, object]]) -> list[ChunkDocument]:
+    documents: list[ChunkDocument] = []
+    for data in records:
+        documents.append(
+            ChunkDocument(
+                id=str(data["id"]),
+                title=str(data["title"]),
+                source=str(data["source"]),
+                chunk_index=int(data["chunk_index"]),
+                text=str(data["text"]),
+                sha256=str(data["sha256"]),
+            )
+        )
+    return documents
+
+
+def _dispatch_append(
+    backend: str,
+    documents: list[ChunkDocument],
+    index_dir: Path,
+    *,
+    source_chunks: str,
+) -> IndexStats:
+    match backend:
+        case "simple":
+            from ark_pi.rag import simple_index
+
+            return simple_index.append_documents(
+                documents,
+                index_dir,
+                source_chunks=source_chunks,
+            )
+        case "chroma":
+            msg = (
+                "Chroma backend does not support incremental corpus ingestion. "
+                "Use --backend simple or ingest via a follow-up semantic slice."
+            )
+            raise IndexConfigurationError(msg)
+        case _:
+            msg = f"Unhandled index backend: {backend!r}"
+            raise IndexConfigurationError(msg)
+
+
+def append_to_index(
+    chunk_records: list[dict[str, object]],
+    index_dir: Path,
+    *,
+    backend: str,
+    source_chunks: str,
+) -> IndexStats:
+    documents = _chunk_records_to_documents(chunk_records)
+    return _dispatch_append(
+        backend,
+        documents,
+        index_dir,
+        source_chunks=source_chunks,
+    )
+
+
 def build_index(
     chunks_path: Path,
     index_dir: Path,

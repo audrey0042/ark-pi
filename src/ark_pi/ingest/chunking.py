@@ -58,11 +58,17 @@ def make_chunk_records(
     sources: list[SourceRecord],
     chunk_size: int,
     chunk_overlap: int,
+    *,
+    source_slugs: dict[str, str] | None = None,
 ) -> list[dict[str, object]]:
     validate_chunk_params(chunk_size, chunk_overlap)
     records: list[dict[str, object]] = []
     for source in sources:
-        slug = source_to_slug(source.source)
+        slug = (
+            source_slugs[source.source]
+            if source_slugs is not None and source.source in source_slugs
+            else source_to_slug(source.source)
+        )
         for chunk_index, chunk_text in enumerate(
             split_text(source.text, chunk_size, chunk_overlap)
         ):
@@ -77,6 +83,49 @@ def make_chunk_records(
                 }
             )
     return records
+
+
+def make_corpus_chunk_records(
+    document_id: str,
+    title: str,
+    source: str,
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+) -> list[dict[str, object]]:
+    slug = _SLUG_RE.sub("_", document_id.lower()).strip("_") or "document"
+    record = SourceRecord(title=title, text=text, source=source)
+    return make_chunk_records(
+        [record],
+        chunk_size,
+        chunk_overlap,
+        source_slugs={source: slug},
+    )
+
+
+def append_chunks_jsonl(
+    records: list[dict[str, object]],
+    output_path: Path,
+) -> None:
+    if not records:
+        return
+    existing_ids: set[str] = set()
+    if output_path.is_file():
+        with output_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                data = json.loads(stripped)
+                if isinstance(data, dict) and "id" in data:
+                    existing_ids.add(str(data["id"]))
+    new_records = [record for record in records if str(record["id"]) not in existing_ids]
+    if not new_records:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(record, ensure_ascii=False) for record in new_records]
+    with output_path.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 def write_chunks_jsonl(

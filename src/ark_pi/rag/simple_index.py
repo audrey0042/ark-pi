@@ -67,6 +67,114 @@ def _document_from_dict(data: dict[str, object]) -> ChunkDocument:
     )
 
 
+def _write_json_atomic(path: Path, data: object) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(data, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
+
+
+def _load_manifest(index_dir: Path) -> dict[str, object]:
+    manifest_path = index_dir / MANIFEST_FILE
+    if not manifest_path.is_file():
+        msg = f"Invalid index directory (missing {MANIFEST_FILE}): {index_dir}"
+        raise ValueError(msg)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        msg = f"Invalid manifest in {manifest_path}"
+        raise ValueError(msg)
+    return data
+
+
+def _existing_document_ids(index_dir: Path) -> set[str]:
+    documents_path = index_dir / DOCUMENTS_FILE
+    if not documents_path.is_file():
+        return set()
+    ids: set[str] = set()
+    with documents_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            data = json.loads(stripped)
+            if isinstance(data, dict) and "id" in data:
+                ids.add(str(data["id"]))
+    return ids
+
+
+def append_documents(
+    documents: list[ChunkDocument],
+    index_dir: Path,
+    *,
+    source_chunks: str,
+) -> IndexStats:
+    if not documents:
+        manifest = _load_manifest(index_dir) if _index_dir_nonempty(index_dir) else None
+        if manifest is None:
+            msg = "Cannot append to an empty index with no documents"
+            raise ValueError(msg)
+        return IndexStats(
+            backend=BACKEND_NAME,
+            schema_version=SCHEMA_VERSION,
+            chunk_count=int(manifest["chunk_count"]),
+            index_dir=index_dir,
+            source_chunks=str(manifest.get("source_chunks", source_chunks)),
+        )
+
+    existing_ids = _existing_document_ids(index_dir) if _index_dir_nonempty(index_dir) else set()
+    new_documents = [doc for doc in documents if doc.id not in existing_ids]
+    if not new_documents and _index_dir_nonempty(index_dir):
+        manifest = _load_manifest(index_dir)
+        return IndexStats(
+            backend=BACKEND_NAME,
+            schema_version=SCHEMA_VERSION,
+            chunk_count=int(manifest["chunk_count"]),
+            index_dir=index_dir,
+            source_chunks=str(manifest.get("source_chunks", source_chunks)),
+        )
+
+    if not _index_dir_nonempty(index_dir):
+        return build_index(new_documents or documents, index_dir, source_chunks=source_chunks, force=False)
+
+    documents_path = index_dir / DOCUMENTS_FILE
+    terms_path = index_dir / TERMS_FILE
+    manifest_path = index_dir / MANIFEST_FILE
+
+    existing_terms = _load_terms(index_dir)
+    new_lines: list[str] = []
+    for document in new_documents:
+        new_lines.append(json.dumps(_document_to_dict(document), ensure_ascii=False))
+        existing_terms[document.id] = _term_frequencies(document.text)
+
+    with documents_path.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(new_lines) + "\n")
+
+    _write_json_atomic(terms_path, existing_terms)
+
+    manifest = _load_manifest(index_dir)
+    chunk_count = int(manifest.get("chunk_count", 0)) + len(new_documents)
+    _write_json_atomic(
+        manifest_path,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "backend": BACKEND_NAME,
+            "created_by": CREATED_BY,
+            "chunk_count": chunk_count,
+            "source_chunks": source_chunks,
+        },
+    )
+
+    return IndexStats(
+        backend=BACKEND_NAME,
+        schema_version=SCHEMA_VERSION,
+        chunk_count=chunk_count,
+        index_dir=index_dir,
+        source_chunks=source_chunks,
+    )
+
+
 def build_index(
     documents: list[ChunkDocument],
     index_dir: Path,

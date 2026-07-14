@@ -48,6 +48,9 @@ Open http://127.0.0.1:8000/. Copy `.env.example` to `.env` if you want non-defau
 | `ark preflight` | Check paths, catalog, backends (no network) |
 | `ark init --sample` | Create workspace/source dirs + sample text |
 | `ark workspace list` | List workspace indexes |
+| `ark corpus prepare-wikipedia INPUT --output PATH` | Normalize local MediaWiki dump to JSONL |
+| `ark corpus ingest SOURCE --index SLUG` | Bulk resumable corpus ingest (JSONL or `.txt` directory) |
+| `ark corpus status` | Read-only corpus run progress |
 | `ark llm status` | Show LLM config (no network call) |
 | `ark llm test --llm-backend mock` | Hit the mock backend |
 | `ark appliance smoke --env-file /etc/ark-pi/ark-rag.env` | Validate RAG-to-LLM link (network test) |
@@ -55,7 +58,25 @@ Open http://127.0.0.1:8000/. Copy `.env.example` to `.env` if you want non-defau
 | `ark appliance receipt --env-file /etc/ark-pi/ark-rag.env` | Offline validation receipt (JSON evidence) |
 | `ark deploy render --output-dir /path/to/deploy-render --force` | Write example env/systemd templates |
 
-Low-level chunk/index debugging: `ark ingest chunk`, `ark index`, `ark ask`. See [docs/architecture.md](docs/architecture.md).
+Low-level chunk/index debugging: `ark ingest chunk`, `ark index`, `ark ask`. Bulk corpus load: `ark corpus ingest` (see [docs/corpus-ingest.md](docs/corpus-ingest.md)). See [docs/architecture.md](docs/architecture.md).
+
+### Bulk corpus ingest (CLI-first)
+
+Long-running corpus loads are CLI-first offline workflows. For Wikimedia dumps, **prepare** then **ingest**:
+
+```bash
+# Stage 1: normalize local SimpleWiki dump (no network; LLM Pi not required)
+ark corpus prepare-wikipedia /srv/ark-pi/data/sources/simplewiki-latest-pages-articles.xml.bz2 \
+  --output /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --project simplewiki
+
+# Stage 2: resumable bulk ingest into a workspace index
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki --batch-size 100
+ark corpus status --json
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki --batch-size 100 --resume
+```
+
+Download, preparation, and ingestion are separate stages. Dump files stay out of git. Details: [docs/wikipedia-corpus.md](docs/wikipedia-corpus.md) and [docs/corpus-ingest.md](docs/corpus-ingest.md).
 
 ## Two-Pi setup (target)
 
