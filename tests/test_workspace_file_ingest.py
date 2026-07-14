@@ -70,7 +70,7 @@ def test_ingest_txt_file_into_named_workspace_index(
     assert entry.source_count == 1
     assert entry.chunk_count == result.chunk_count
 
-    search_results = rag_index.search_index(result.index_dir, "prompt assembly", limit=3)
+    search_results = rag_index.search_index(result.index_dir, "prompt assembly", limit=3).results
     assert len(search_results) >= 1
 
 

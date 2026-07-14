@@ -78,7 +78,7 @@ def test_jsonl_ingest_into_simple_index(corpus_env: tuple[Path, Path, Path]) -> 
     assert result.chunks_written >= 3
 
     _, index_dir = index_paths(workspace_dir, "corpus-smoke")
-    hits = rag_index.search_index(index_dir, "second local article", limit=5)
+    hits = rag_index.search_index(index_dir, "second local article", limit=5).results
     assert hits
     assert any("second" in hit.text.lower() for hit in hits)
 

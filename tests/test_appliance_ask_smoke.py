@@ -100,8 +100,13 @@ def test_run_appliance_ask_smoke_no_retrieval_hits(
     rag_env: tuple,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def empty_search(*_args: object, **_kwargs: object) -> list[rag_index.SearchResult]:
-        return []
+    def empty_search(*_args: object, **_kwargs: object) -> rag_index.SearchExecutionResult:
+        return rag_index.SearchExecutionResult(
+            results=[],
+            backend="simple",
+            search_mode="lexical",
+            query="",
+        )
 
     monkeypatch.setattr("ark_pi.rag.index.search_index", empty_search)
 
@@ -118,17 +123,22 @@ def test_run_appliance_ask_smoke_wrong_retrieval_skips_llm(
     rag_env: tuple,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def wrong_search(*_args: object, **_kwargs: object) -> list[rag_index.SearchResult]:
-        return [
-            rag_index.SearchResult(
-                score=1.0,
-                id="x",
-                title="Wrong",
-                source="wrong.txt",
-                chunk_index=0,
-                text="nothing useful here",
-            )
-        ]
+    def wrong_search(*_args: object, **_kwargs: object) -> rag_index.SearchExecutionResult:
+        return rag_index.SearchExecutionResult(
+            results=[
+                rag_index.SearchResult(
+                    score=1.0,
+                    id="x",
+                    title="Wrong",
+                    source="wrong.txt",
+                    chunk_index=0,
+                    text="nothing useful here",
+                )
+            ],
+            backend="simple",
+            search_mode="lexical",
+            query="",
+        )
 
     def fail_ask(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("run_ask should not be called when retrieval is wrong")

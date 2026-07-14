@@ -137,9 +137,38 @@ ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma \
 
 Rebuild the index when changing model identity, dimensions, or normalization. See [corpus-ingest.md](corpus-ingest.md).
 
+## Semantic search (Slice 55)
+
+After building a semantic Chroma index, query it with the **same embedding identity** used at ingest. The query embedder must match the index fingerprint (backend, model, dimensions, normalization, model path id). Mismatches fail with a typed compatibility error — dimensions alone are not sufficient.
+
+```bash
+# Lexical search (default; simple indexes)
+ark index search --index-dir ./index --query "prompt assembly" --json
+
+# Semantic search (Chroma v2 indexes with embedding metadata)
+ark index search --index-dir ./workspace/indexes/wiki-semantic/index \
+  --query "water purification" --json
+
+# Offline local model path
+ark index search --index-dir ./workspace/indexes/wiki-semantic/index \
+  --query "water purification" \
+  --embedding-backend sentence-transformers \
+  --embedding-model-path /srv/ark-pi/embedding-models/all-MiniLM-L6-v2 \
+  --json
+
+# API
+curl -s -X POST http://127.0.0.1:8000/api/search \
+  -H 'Content-Type: application/json' \
+  -d '{"index_dir":"/path/to/index","query":"water purification","limit":5}'
+```
+
+**Score semantics:** lexical results use term-frequency scores (higher = better match). Semantic results use converted Chroma distances: **cosine similarity** (`1 - distance`, higher = more similar, typically ~0–1) for normalized indexes, or **negative L2 distance** (higher = closer) for unnormalized indexes. JSON responses include `search_mode`, `score_semantics`, and embedding latency fields.
+
+**Passive paths:** `ark index stats`, `GET /api/index/stats`, and index listing do not load embedding models.
+
 ## What this slice does not do
 
 - Does not make Chroma the default index backend
 - Does not migrate or rebuild existing workspace indexes automatically
-- Does not add semantic search to `/api/search` or change `ark ask` (deferred to Slice 8)
+- Does not change `ark ask` retrieval or add hybrid lexical + semantic fusion
 - Does not download models automatically

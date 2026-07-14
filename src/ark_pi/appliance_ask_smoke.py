@@ -144,12 +144,13 @@ def run_appliance_ask_smoke(
         force=True,
     )
 
-    search_results = rag_index.search_index(
+    execution = rag_index.search_index(
         ingest_result.index_dir,
         SMOKE_QUESTION,
         backend=ingest_result.backend,
         limit=5,
     )
+    search_results = execution.results
     retrieved_count = len(search_results)
     context_preview = _context_preview(search_results)
 

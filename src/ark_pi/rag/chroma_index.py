@@ -11,6 +11,7 @@ from ark_pi.rag.index import (
     IndexDependencyError,
     IndexFormatError,
     IndexStats,
+    SearchExecutionResult,
     SearchResult,
 )
 from ark_pi.rag.semantic_index import (
@@ -393,7 +394,85 @@ def build_index(
     )
 
 
-def search_index(index_dir: Path, query: str, *, limit: int) -> list[SearchResult]:
+def distance_to_score(distance: float, *, normalizes_vectors: bool) -> float:
+    """Convert a Chroma distance into a stable score where higher is better.
+
+    Cosine space (normalized vectors): score = 1.0 - distance, typically in [0, 1].
+    L2 space (unnormalized vectors): score = -distance (closer vectors score higher).
+    """
+    if normalizes_vectors:
+        return 1.0 - distance
+    return -distance
+
+
+def _sort_search_results(results: list[SearchResult]) -> list[SearchResult]:
+    return sorted(results, key=lambda result: (-result.score, result.id))
+
+
+def query_by_vector(
+    index_dir: Path,
+    query_vector: list[float],
+    *,
+    limit: int,
+    normalizes_vectors: bool,
+) -> list[SearchResult]:
+    """Query a Chroma collection by precomputed query embedding."""
+    chromadb = _import_chromadb()
+    manifest = _load_manifest(index_dir)
+    collection_name = _collection_name_from_manifest(manifest)
+
+    client = chromadb.PersistentClient(path=str(index_dir))
+    try:
+        collection = client.get_collection(collection_name)
+    except ValueError as exc:
+        msg = f"Chroma collection not found in index: {collection_name}"
+        raise IndexFormatError(msg) from exc
+
+    try:
+        raw = collection.query(
+            query_embeddings=[query_vector],
+            n_results=limit,
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception as exc:
+        msg = f"Chroma vector query failed: {exc}"
+        raise IndexConfigurationError(msg) from exc
+
+    ids = raw.get("ids", [[]])[0]
+    documents = raw.get("documents", [[]])[0]
+    metadatas = raw.get("metadatas", [[]])[0]
+    distances = raw.get("distances", [[]])[0]
+
+    results: list[SearchResult] = []
+    for doc_id, text, metadata, distance in zip(ids, documents, metadatas, distances, strict=False):
+        if text is None or metadata is None:
+            continue
+        title = str(metadata.get("title", ""))
+        source = str(metadata.get("source", ""))
+        chunk_index = int(metadata.get("chunk_index", 0))
+        raw_distance = float(distance) if distance is not None else 0.0
+        score = distance_to_score(raw_distance, normalizes_vectors=normalizes_vectors)
+        results.append(
+            SearchResult(
+                score=score,
+                id=str(doc_id),
+                title=title,
+                source=source,
+                chunk_index=chunk_index,
+                text=str(text),
+            )
+        )
+    return _sort_search_results(results)
+
+
+def search_legacy_index(
+    index_dir: Path,
+    query: str,
+    *,
+    limit: int,
+    index_name: str | None = None,
+) -> SearchExecutionResult:
+    """Search a legacy v1 Chroma index using Chroma's built-in text embedding."""
     chromadb = _import_chromadb()
     manifest = _load_manifest(index_dir)
     collection_name = _collection_name_from_manifest(manifest)
@@ -414,7 +493,7 @@ def search_index(index_dir: Path, query: str, *, limit: int) -> list[SearchResul
     except Exception as exc:
         msg = (
             "Chroma could not query documents with the available embedding setup. "
-            "Semantic query execution is deferred to a future slice."
+            "Use corpus ingest with --backend chroma and a configured embedder."
         )
         raise IndexConfigurationError(msg) from exc
 
@@ -441,7 +520,19 @@ def search_index(index_dir: Path, query: str, *, limit: int) -> list[SearchResul
                 text=str(text),
             )
         )
-    return results
+    return SearchExecutionResult(
+        results=results,
+        backend=BACKEND_NAME,
+        search_mode="semantic",
+        query=query,
+        index_name=index_name,
+        score_semantics="chroma_distance",
+    )
+
+
+def search_index(index_dir: Path, query: str, *, limit: int) -> list[SearchResult]:
+    """Legacy entry point; prefer query_by_vector for semantic indexes."""
+    return search_legacy_index(index_dir, query, limit=limit).results
 
 
 def read_semantic_metadata(index_dir: Path) -> dict[str, object] | None:

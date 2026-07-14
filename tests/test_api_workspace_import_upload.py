@@ -120,7 +120,7 @@ def test_api_workspace_import_upload_imported_index_is_searchable(
 
     entry = workspace_catalog.get_index(empty_workspace, "sample")
     assert entry is not None
-    results = rag_index.search_index(Path(entry.index_dir), "import upload API", limit=3)
+    results = rag_index.search_index(Path(entry.index_dir), "import upload API", limit=3).results
     assert len(results) >= 1
 
 

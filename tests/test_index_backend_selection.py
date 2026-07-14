@@ -114,4 +114,4 @@ def test_backend_mismatch_fails_clearly(tmp_path: Path) -> None:
     rag_index.build_index(chunks_path, index_dir, backend="simple")
 
     with pytest.raises(rag_index.IndexConfigurationError, match="does not match"):
-        rag_index.search_index(index_dir, "prompt", backend="chroma")
+        rag_index.search_index(index_dir, "prompt", backend="chroma").results

@@ -363,6 +363,16 @@ sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
   --backend chroma \
   --batch-size 100 \
   --json
+
+# Search lexical index (default)
+sudo /opt/ark-pi/.venv/bin/ark index search \
+  --index-dir /srv/ark-pi/workspace/indexes/simplewiki/index \
+  --query "water purification" --json
+
+# Search semantic Chroma index (query embedder must match index fingerprint)
+sudo /opt/ark-pi/.venv/bin/ark index search \
+  --index-dir /srv/ark-pi/workspace/indexes/simplewiki-semantic/index \
+  --query "how to purify water" --json
 ```
 
 Preparation sidecars (`.partial`, `.checkpoint.json`, `.manifest.json`, `.ATTRIBUTION.txt`) live next to the output JSONL. Ingest checkpoints live under `$ARK_WORKSPACE_DIR/corpus-runs/`. See [wikipedia-corpus.md](../wikipedia-corpus.md) and [corpus-ingest.md](../corpus-ingest.md).
@@ -561,7 +571,7 @@ When ark-llm responds (from ark-rag):
 - llama.cpp install automation
 - Model download and management
 - Authentication
-- Semantic search and hybrid retrieval over Chroma indexes (Slice 8)
+- Hybrid lexical + semantic retrieval and `ark ask` semantic wiring (deferred)
 - Hardware-specific performance tuning
 
 See [roadmap.md](../roadmap.md) for staged development status.

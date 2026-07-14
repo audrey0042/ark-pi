@@ -38,6 +38,27 @@ ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
   --batch-size 100
 ```
 
+### Search after ingest
+
+Lexical indexes (default) use term matching:
+
+```bash
+ark index search --index-dir /srv/ark-pi/workspace/indexes/simplewiki/index \
+  --query "water purification" --json
+```
+
+For semantic Chroma indexes built with `--backend chroma`, use semantic search with a matching query embedder:
+
+```bash
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki-semantic --backend chroma --json
+
+ark index search --index-dir /srv/ark-pi/workspace/indexes/simplewiki-semantic/index \
+  --query "how to purify water" --json
+```
+
+See [embeddings.md](embeddings.md) for embedding compatibility and score semantics. `ark ask` still uses lexical retrieval only.
+
 ## CLI command
 
 ```bash

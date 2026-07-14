@@ -308,6 +308,6 @@ def test_end_to_end_prepare_ingest_search(prepare_env: dict[str, Path]) -> None:
         index_dir,
         "fixture article phrase",
         limit=3,
-    )
+    ).results
     assert hits
     assert any("fixture article phrase" in hit.text.lower() for hit in hits)

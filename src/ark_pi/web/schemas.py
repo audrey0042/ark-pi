@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -280,6 +280,7 @@ class SearchRequest(BaseModel):
     query: str
     limit: int = Field(default=5, gt=0)
     backend: IndexBackendOption | None = None
+    allow_network: bool | None = None
 
     @field_validator("query")
     @classmethod
@@ -303,7 +304,13 @@ class SearchResultItem(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
+    backend: str
+    search_mode: Literal["lexical", "semantic"]
     results: list[SearchResultItem]
+    embedding_fingerprint: str | None = None
+    score_semantics: str | None = None
+    query_embedding_latency_ms: int | None = None
+    search_latency_ms: int | None = None
 
 
 class AskRequest(BaseModel):

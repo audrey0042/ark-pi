@@ -82,7 +82,7 @@ Choose and wire an embedding model for semantic indexing. Evaluate retrieval qua
 
 End-to-end semantic search, ranking evaluation, and tuning over Chroma-backed indexes.
 
-**Status: deferred until after Slice 54 semantic corpus indexing**
+**Status: partial — semantic query execution done (Slice 55); hybrid retrieval, `ark ask` semantic wiring, and offline ranking evaluation remain deferred**
 
 ## 9. FastAPI RAG service
 
@@ -266,7 +266,15 @@ CLI: `ark embeddings status`, `ark embeddings test`, `ark embeddings evaluate`. 
 
 Embed canonical chunks during resumable corpus ingestion. Persist embedding identity in index metadata. Build Chroma indexes incrementally with resume and duplicate protections. Keep lexical indexes for fallback and hybrid retrieval.
 
-CLI: `ark corpus ingest --backend chroma`, `ark corpus status`. See [corpus-ingest.md](corpus-ingest.md) and [embeddings.md](embeddings.md). Semantic query execution remains deferred (Slice 8).
+CLI: `ark corpus ingest --backend chroma`, `ark corpus status`. See [corpus-ingest.md](corpus-ingest.md) and [embeddings.md](embeddings.md).
+
+**Status: done**
+
+## 55. Semantic search execution
+
+End-to-end semantic query execution for Chroma v2 indexes. Embed queries through the existing runtime, validate embedding identity against index metadata, and search via Chroma vector query. Exposed through `ark index search` and `POST /api/search`. Lexical simple search and `ark ask` unchanged.
+
+CLI: `ark index search --json`, embedding overrides (`--embedding-backend`, `--embedding-model-path`, `--allow-network`). See [embeddings.md](embeddings.md).
 
 **Status: done**
 

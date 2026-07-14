@@ -33,6 +33,8 @@ def test_index_search_help() -> None:
     result = runner.invoke(app, ["index", "search", "--help"])
     assert result.exit_code == 0
     assert "--query" in result.stdout
+    assert "--embedding-backend" in result.stdout
+    assert "--json" in result.stdout
 
 
 def test_index_stats_help() -> None:

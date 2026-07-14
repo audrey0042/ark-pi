@@ -85,7 +85,7 @@ def test_imported_index_can_be_searched(
     entry = workspace_catalog.get_index(empty_workspace_dir, slug)
     assert entry is not None
 
-    results = rag_index.search_index(Path(entry.index_dir), "import test content", limit=3)
+    results = rag_index.search_index(Path(entry.index_dir), "import test content", limit=3).results
     assert len(results) >= 1
 
 
@@ -145,7 +145,7 @@ def test_import_conflict_with_force_replaces_only_imported_slug(
     assert alpha is not None
     new_mtime = Path(alpha.chunks_path).stat().st_mtime
     assert new_mtime >= original_mtime
-    results = rag_index.search_index(Path(alpha.index_dir), "Replacement alpha", limit=3)
+    results = rag_index.search_index(Path(alpha.index_dir), "Replacement alpha", limit=3).results
     assert len(results) >= 1
 
 
@@ -302,7 +302,7 @@ def test_import_from_bytes_restores_searchable_index(
     entry = workspace_catalog.get_index(empty_workspace_dir, slug)
     assert entry is not None
 
-    results = rag_index.search_index(Path(entry.index_dir), "import test content", limit=3)
+    results = rag_index.search_index(Path(entry.index_dir), "import test content", limit=3).results
     assert len(results) >= 1
 
 

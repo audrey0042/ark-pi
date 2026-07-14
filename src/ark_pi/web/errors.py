@@ -13,7 +13,14 @@ from ark_pi.embeddings import (
     EmbeddingNetworkDisabled,
 )
 from ark_pi.llm_client import LlmConfigurationError, LlmResponseError, LlmTransportError
-from ark_pi.rag.index import IndexErrorBase, SearchResult
+from ark_pi.rag.index import IndexDependencyError, IndexErrorBase, SearchResult
+from ark_pi.rag.semantic_index import (
+    SemanticIndexCompatibilityError,
+    SemanticIndexDependencyMissing,
+    SemanticIndexUnavailable,
+    SemanticQueryEmbeddingFailed,
+    SemanticSearchError,
+)
 from ark_pi.workspace.catalog import WorkspaceError, WorkspaceIndexNotFoundError
 from ark_pi.web.schemas import ErrorResponse, SearchResultItem
 
@@ -40,6 +47,48 @@ def _error_response(status_code: int, error: str, detail: str) -> JSONResponse:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(SemanticIndexCompatibilityError)
+    async def handle_semantic_index_compatibility_error(
+        _request: Request,
+        exc: SemanticIndexCompatibilityError,
+    ) -> JSONResponse:
+        return _error_response(409, "semantic_index_incompatible", str(exc))
+
+    @app.exception_handler(SemanticIndexUnavailable)
+    async def handle_semantic_index_unavailable(
+        _request: Request,
+        exc: SemanticIndexUnavailable,
+    ) -> JSONResponse:
+        return _error_response(422, "semantic_index_unavailable", str(exc))
+
+    @app.exception_handler(SemanticIndexDependencyMissing)
+    async def handle_semantic_index_dependency_missing(
+        _request: Request,
+        exc: SemanticIndexDependencyMissing,
+    ) -> JSONResponse:
+        return _error_response(400, "index_dependency_missing", str(exc))
+
+    @app.exception_handler(IndexDependencyError)
+    async def handle_index_dependency_error(
+        _request: Request,
+        exc: IndexDependencyError,
+    ) -> JSONResponse:
+        return _error_response(400, "index_dependency_missing", str(exc))
+
+    @app.exception_handler(SemanticQueryEmbeddingFailed)
+    async def handle_semantic_query_embedding_failed(
+        _request: Request,
+        exc: SemanticQueryEmbeddingFailed,
+    ) -> JSONResponse:
+        return _error_response(422, "semantic_query_embedding_failed", str(exc))
+
+    @app.exception_handler(SemanticSearchError)
+    async def handle_semantic_search_error(
+        _request: Request,
+        exc: SemanticSearchError,
+    ) -> JSONResponse:
+        return _error_response(400, "semantic_search_error", str(exc))
+
     @app.exception_handler(IndexErrorBase)
     async def handle_index_error(_request: Request, exc: IndexErrorBase) -> JSONResponse:
         return _error_response(400, "index_error", str(exc))
