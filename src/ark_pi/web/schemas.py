@@ -269,6 +269,10 @@ class IndexStatsResponse(BaseModel):
     chunk_count: int
     index_dir: str
     source_chunks: str | None = None
+    embedding_fingerprint: str | None = None
+    embedding_backend: str | None = None
+    embedding_model_name: str | None = None
+    embedding_dimensions: int | None = None
 
 
 class SearchRequest(BaseModel):

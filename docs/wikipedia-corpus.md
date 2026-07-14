@@ -90,7 +90,16 @@ One compact JSON object per line:
 }
 ```
 
-Prepared JSONL passes Slice 51 `ark corpus ingest` unchanged. Records are **backend-neutral**: the same JSONL can feed lexical `simple` indexes today or semantic Chroma indexes in a follow-up slice. Embedding runtime diagnostics are separate; see [embeddings.md](embeddings.md).
+Prepared JSONL passes `ark corpus ingest` unchanged. Records are **backend-neutral**: the same JSONL feeds lexical `simple` indexes (default) or semantic Chroma indexes (`--backend chroma`). See [corpus-ingest.md](corpus-ingest.md) and [embeddings.md](embeddings.md).
+
+```bash
+# Lexical (default)
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki
+
+# Semantic smoke test with mock embedder (no torch)
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki-semantic --backend chroma --batch-size 100
+```
 
 ## Sidecar files
 

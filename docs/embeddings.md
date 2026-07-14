@@ -1,6 +1,6 @@
 # Local embedding runtime
 
-Slice 53 adds a typed optional embedding runtime for diagnostics and offline evaluation. It does **not** wire embeddings into corpus ingestion, Chroma indexes, or `/api/search`. Lexical `simple` retrieval remains the default.
+Slice 53 adds a typed optional embedding runtime for diagnostics, offline evaluation, and **semantic corpus indexing** (Slice 54). Lexical `simple` retrieval remains the default for `/api/search` and `ark ask`.
 
 ## Backends
 
@@ -118,12 +118,28 @@ sudo /opt/ark-pi/.venv/bin/ark embeddings evaluate --env-file /etc/ark-pi/ark-ra
 | `EmbeddingModelMissing` | `ARK_EMBEDDING_MODEL_PATH` does not exist or is not a directory |
 | `EmbeddingModelLoadFailed` | Corrupt or incomplete model directory |
 
+## Corpus ingest integration (Slice 54)
+
+Semantic corpus ingest (`ark corpus ingest --backend chroma`) uses this runtime to embed canonical chunks and write vectors to Chroma. Each index stores an **embedding fingerprint** (backend, model identity, dimensions, normalization). Resume and append reject incompatible embedding configuration.
+
+```bash
+# Passive config check (no model load)
+ark embeddings status --json
+
+# Smoke semantic ingest with mock embedder (no torch)
+ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma --json
+
+# Offline sentence-transformers (model copied locally first)
+export ARK_EMBEDDING_MODEL_PATH=/srv/ark-pi/embedding-models/all-MiniLM-L6-v2
+ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma \
+  --embedding-backend sentence-transformers
+```
+
+Rebuild the index when changing model identity, dimensions, or normalization. See [corpus-ingest.md](corpus-ingest.md).
+
 ## What this slice does not do
 
 - Does not make Chroma the default index backend
-- Does not migrate or rebuild existing workspace indexes
-- Does not add semantic search to `/api/search`
-- Does not store embeddings in Slice 51 corpus checkpoints
+- Does not migrate or rebuild existing workspace indexes automatically
+- Does not add semantic search to `/api/search` or change `ark ask` (deferred to Slice 8)
 - Does not download models automatically
-
-Semantic corpus indexing is planned for Slice 54. See [roadmap.md](roadmap.md).

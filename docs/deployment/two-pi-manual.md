@@ -355,6 +355,14 @@ sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
   --index simplewiki \
   --batch-size 100 \
   --resume
+
+# Optional: semantic Chroma index (mock embedder smoke test; install '.[chroma]' for real Chroma)
+sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
+  /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki-semantic \
+  --backend chroma \
+  --batch-size 100 \
+  --json
 ```
 
 Preparation sidecars (`.partial`, `.checkpoint.json`, `.manifest.json`, `.ATTRIBUTION.txt`) live next to the output JSONL. Ingest checkpoints live under `$ARK_WORKSPACE_DIR/corpus-runs/`. See [wikipedia-corpus.md](../wikipedia-corpus.md) and [corpus-ingest.md](../corpus-ingest.md).
@@ -553,7 +561,7 @@ When ark-llm responds (from ark-rag):
 - llama.cpp install automation
 - Model download and management
 - Authentication
-- Chroma / semantic index production path
+- Semantic search and hybrid retrieval over Chroma indexes (Slice 8)
 - Hardware-specific performance tuning
 
 See [roadmap.md](../roadmap.md) for staged development status.

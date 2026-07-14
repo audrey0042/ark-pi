@@ -5,7 +5,7 @@ import pytest
 
 from ark_pi.corpus.checkpoint import (
     SCHEMA_NAME,
-    SCHEMA_VERSION,
+    SCHEMA_VERSION_LEXICAL,
     CorpusCheckpointError,
     load_checkpoint,
     new_checkpoint,
@@ -36,7 +36,7 @@ def sample_checkpoint(tmp_path: Path) -> Path:
 def test_checkpoint_round_trip(sample_checkpoint: Path) -> None:
     loaded = load_checkpoint(sample_checkpoint)
     assert loaded.schema_name == SCHEMA_NAME
-    assert loaded.schema_version == SCHEMA_VERSION
+    assert loaded.schema_version == SCHEMA_VERSION_LEXICAL
     assert loaded.run_id == "test-run"
     assert loaded.status == CorpusRunStatus.planned
     assert loaded.estimated_records == 5
@@ -111,3 +111,53 @@ def test_checkpoint_written_as_valid_json(sample_checkpoint: Path) -> None:
     payload = json.loads(sample_checkpoint.read_text(encoding="utf-8"))
     assert payload["schema_name"] == SCHEMA_NAME
     assert payload["chunking_config"]["chunk_size"] == 1000
+
+
+def test_validate_checkpoint_rejects_lexical_to_semantic_resume(tmp_path: Path) -> None:
+    ckpt = new_checkpoint(
+        run_id="lexical-run",
+        source="/tmp/sample.jsonl",
+        source_format=CorpusSourceFormat.jsonl,
+        source_fingerprint="abc123",
+        index_slug="wiki",
+        index_backend="simple",
+        chunking_config=ChunkingConfig(chunk_size=1000, chunk_overlap=200),
+        batch_size=10,
+    )
+    path = tmp_path / "checkpoint.json"
+    write_checkpoint(path, ckpt)
+    loaded = load_checkpoint(path)
+    with pytest.raises(CorpusCheckpointError, match="Lexical checkpoint cannot be resumed as semantic"):
+        validate_checkpoint_compatibility(
+            loaded,
+            source_fingerprint="abc123",
+            index_slug="wiki",
+            index_backend="chroma",
+            chunking_config=ChunkingConfig(chunk_size=1000, chunk_overlap=200),
+            embedding_fingerprint="fp",
+        )
+
+
+def test_validate_checkpoint_rejects_semantic_to_lexical_resume(tmp_path: Path) -> None:
+    ckpt = new_checkpoint(
+        run_id="semantic-run",
+        source="/tmp/sample.jsonl",
+        source_format=CorpusSourceFormat.jsonl,
+        source_fingerprint="abc123",
+        index_slug="wiki",
+        index_backend="chroma",
+        chunking_config=ChunkingConfig(chunk_size=1000, chunk_overlap=200),
+        batch_size=10,
+        embedding_fingerprint="deadbeef" * 8,
+    )
+    path = tmp_path / "checkpoint.json"
+    write_checkpoint(path, ckpt)
+    loaded = load_checkpoint(path)
+    with pytest.raises(CorpusCheckpointError, match="Semantic checkpoint cannot be resumed as lexical"):
+        validate_checkpoint_compatibility(
+            loaded,
+            source_fingerprint="abc123",
+            index_slug="wiki",
+            index_backend="simple",
+            chunking_config=ChunkingConfig(chunk_size=1000, chunk_overlap=200),
+        )

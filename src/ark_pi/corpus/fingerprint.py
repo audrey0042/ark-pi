@@ -139,8 +139,9 @@ def derive_run_id(
     chunk_size: int,
     chunk_overlap: int,
     backend: str,
+    embedding_fingerprint: str | None = None,
 ) -> str:
-    payload = {
+    payload: dict[str, object] = {
         "source_fingerprint": source_fingerprint.fingerprint,
         "source_path": source_fingerprint.normalized_path,
         "index_slug": index_slug,
@@ -148,5 +149,10 @@ def derive_run_id(
         "chunk_overlap": chunk_overlap,
         "backend": backend,
     }
+    if backend == "chroma":
+        if embedding_fingerprint is None:
+            msg = "Chroma corpus run requires embedding_fingerprint for run_id derivation"
+            raise ValueError(msg)
+        payload["embedding_fingerprint"] = embedding_fingerprint
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

@@ -24,7 +24,7 @@ On a laptop, offline, mock LLM by default:
 - `ark preflight`
 - `ark deploy *` (render, preflight, plan, bundle, verify, unpack). Review/staging only; does not install anything.
 
-Default index is `simple` (lexical). Chroma and embeddings are optional extras. Embedding diagnostics use the mock backend by default; lexical retrieval is unchanged. See [docs/embeddings.md](docs/embeddings.md). API/UI details: [docs/architecture.md](docs/architecture.md).
+Default index is `simple` (lexical). Chroma semantic indexing and embeddings are optional extras. Embedding diagnostics use the mock backend by default; lexical search and `ark ask` are unchanged. See [docs/embeddings.md](docs/embeddings.md). API/UI details: [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart
 
@@ -71,10 +71,13 @@ ark corpus prepare-wikipedia /srv/ark-pi/data/sources/simplewiki-latest-pages-ar
   --output /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
   --project simplewiki
 
-# Stage 2: resumable bulk ingest into a workspace index
+# Stage 2: resumable bulk ingest into a workspace index (lexical default)
 ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki --batch-size 100
 ark corpus status --json
 ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki --batch-size 100 --resume
+
+# Optional: semantic Chroma index with mock embedder (no torch; pip install -e '.[chroma]' for Chroma)
+ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki-semantic --backend chroma --json
 ```
 
 Download, preparation, and ingestion are separate stages. Dump files stay out of git. Details: [docs/wikipedia-corpus.md](docs/wikipedia-corpus.md) and [docs/corpus-ingest.md](docs/corpus-ingest.md).

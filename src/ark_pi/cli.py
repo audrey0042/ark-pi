@@ -1720,7 +1720,22 @@ def corpus_ingest(
     backend: IndexBackendOption = typer.Option(
         IndexBackendOption.simple,
         "--backend",
-        help="Index backend (simple required for corpus ingest)",
+        help="Index backend (simple=lexical, chroma=semantic vectors)",
+    ),
+    embedding_backend: EmbeddingBackendOption | None = typer.Option(
+        None,
+        "--embedding-backend",
+        help="Embedding backend override for semantic (--backend chroma) ingest",
+    ),
+    embedding_model_path: Path | None = typer.Option(
+        None,
+        "--embedding-model-path",
+        help="Local embedding model directory for semantic ingest",
+    ),
+    allow_network: bool = typer.Option(
+        False,
+        "--allow-network",
+        help="Permit remote model resolution during semantic ingest",
     ),
     resume: bool = typer.Option(False, "--resume", help="Resume from checkpoint"),
     run_id: str | None = typer.Option(None, "--run-id", help="Override run identifier"),
@@ -1760,10 +1775,14 @@ def corpus_ingest(
         table.add_column("Value")
         table.add_row("Run ID", status.run_id)
         table.add_row("Index", status.index_slug)
+        table.add_row("Backend", status.index_backend)
         table.add_row("Status", status.status.value)
         table.add_row("Completed", str(status.records_completed))
         table.add_row("Failed", str(status.records_failed))
         table.add_row("Chunks", str(status.chunks_written))
+        if status.embedding_fingerprint is not None:
+            table.add_row("Embedding fingerprint", status.embedding_fingerprint[:16] + "...")
+            table.add_row("Embedded chunks", str(status.records_embedded))
         if status.progress_percent is not None:
             table.add_row("Progress", f"{status.progress_percent}%")
         table.add_row("Updated", status.updated_at)
@@ -1785,6 +1804,9 @@ def corpus_ingest(
         dry_run=dry_run,
         continue_on_error=continue_on_error,
         yes=yes,
+        embedding_backend=embedding_backend.value if embedding_backend is not None else None,
+        embedding_model_path=embedding_model_path,
+        allow_network=allow_network if allow_network else None,
     )
 
     if dry_run:
@@ -1800,9 +1822,12 @@ def corpus_ingest(
         table.add_column("Value")
         table.add_row("Run ID", dry.run_id)
         table.add_row("Index", dry.index_slug)
+        table.add_row("Backend", dry.backend)
         table.add_row("Source", dry.source)
         table.add_row("Format", dry.source_format.value)
         table.add_row("Fingerprint", dry.source_fingerprint.fingerprint[:16] + "...")
+        if dry.embedding_fingerprint is not None:
+            table.add_row("Embedding fingerprint", dry.embedding_fingerprint[:16] + "...")
         if dry.estimated_records is not None:
             table.add_row("Estimated records", str(dry.estimated_records))
         table.add_row("Run directory", str(dry.run_dir))
@@ -1833,10 +1858,15 @@ def corpus_ingest(
         table.add_column("Value")
         table.add_row("Run ID", result.run_id)
         table.add_row("Index", result.index_slug)
+        table.add_row("Backend", result.index_backend)
         table.add_row("Status", result.status.value)
         table.add_row("Documents completed", str(result.records_completed))
         table.add_row("Documents failed", str(result.records_failed))
+        table.add_row("Documents skipped", str(result.records_skipped))
         table.add_row("Chunks written", str(result.chunks_written))
+        if result.embedding_fingerprint is not None:
+            table.add_row("Embedding fingerprint", result.embedding_fingerprint[:16] + "...")
+            table.add_row("Chunks embedded", str(result.records_embedded))
         table.add_row("Elapsed (s)", f"{result.elapsed_seconds:.1f}")
         table.add_row("Checkpoint", str(result.checkpoint_path))
         if result.partial:
@@ -1877,11 +1907,16 @@ def corpus_status(
     table.add_row("Run ID", status.run_id)
     table.add_row("Source", status.source)
     table.add_row("Index", status.index_slug)
+    table.add_row("Backend", status.index_backend)
     table.add_row("Status", status.status.value)
     table.add_row("Seen", str(status.records_seen))
     table.add_row("Completed", str(status.records_completed))
     table.add_row("Failed", str(status.records_failed))
     table.add_row("Chunks", str(status.chunks_written))
+    if status.embedding_fingerprint is not None:
+        table.add_row("Embedding fingerprint", status.embedding_fingerprint[:16] + "...")
+        table.add_row("Embedded chunks", str(status.records_embedded))
+        table.add_row("Committed batches", str(status.committed_batches))
     if status.progress_percent is not None:
         table.add_row("Progress", f"{status.progress_percent}%")
     table.add_row("Updated", status.updated_at)
