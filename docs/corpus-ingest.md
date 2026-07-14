@@ -164,3 +164,5 @@ JSONL fingerprinting streams a full-file SHA-256 (multi-GB files can take minute
 ## Architecture note
 
 Corpus ingest logic lives in `ark_pi.corpus` (service layer). The CLI is a thin adapter. No long-running HTTP endpoint is provided in this slice; future job orchestration may call the same service functions.
+
+Slice 51 corpus ingest remains **lexical-only** (`simple` backend). Semantic embedding during ingest and Chroma vector indexing are deferred to Slice 54. Use [embeddings.md](embeddings.md) to probe local model compatibility before enabling semantic indexes.

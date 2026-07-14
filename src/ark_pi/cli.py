@@ -41,6 +41,15 @@ from ark_pi.corpus.wikipedia import (
     run_prepare_wikipedia,
     run_prepare_wikipedia_dry_run,
 )
+from ark_pi.embeddings import (
+    EmbeddingError,
+    active_test_to_dict,
+    embeddings_passive_status,
+    evaluate_result_to_dict,
+    passive_status_to_dict,
+    run_embeddings_active_test,
+    run_embeddings_evaluate,
+)
 from ark_pi.deploy import templates as deploy_templates
 from ark_pi.deploy.bundle import build_deployment_bundle, bundle_result_to_dict
 from ark_pi.deploy.bundle_verify import bundle_verify_result_to_dict, verify_deployment_bundle
@@ -76,6 +85,7 @@ llm_app = typer.Typer(help="LLM client commands")
 deploy_app = typer.Typer(help="Deployment template commands")
 appliance_app = typer.Typer(help="Appliance validation commands")
 corpus_app = typer.Typer(help="Bulk corpus ingestion commands")
+embeddings_app = typer.Typer(help="Embedding runtime commands")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(index_app, name="index")
 app.add_typer(workspace_app, name="workspace")
@@ -83,6 +93,7 @@ app.add_typer(llm_app, name="llm")
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(appliance_app, name="appliance")
 app.add_typer(corpus_app, name="corpus")
+app.add_typer(embeddings_app, name="embeddings")
 console = Console()
 
 
@@ -94,6 +105,11 @@ class LlmBackendOption(str, Enum):
 class IndexBackendOption(str, Enum):
     simple = "simple"
     chroma = "chroma"
+
+
+class EmbeddingBackendOption(str, Enum):
+    mock = "mock"
+    sentence_transformers = "sentence-transformers"
 
 
 class DeployRoleOption(str, Enum):
@@ -121,6 +137,17 @@ def _handle_workspace_errors(exc: BaseException) -> None:
 def _handle_llm_errors(exc: BaseException) -> None:
     typer.echo(str(exc), err=True)
     raise typer.Exit(code=1) from exc
+
+
+def _handle_embedding_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _resolve_cli_settings(env_file: Path | None) -> ark_config.ArkSettings:
+    if env_file is not None:
+        return ark_config.load_settings_from_env_file(env_file)
+    return ark_config.get_settings()
 
 
 @app.command()
@@ -729,6 +756,162 @@ def llm_test_cmd(
     table.add_row("ok", str(result.ok))
     table.add_row("latency_ms", str(result.latency_ms))
     table.add_row("output_text", result.output_text)
+    table.add_row("message", result.message)
+    console.print(table)
+
+
+@embeddings_app.command("status")
+def embeddings_status_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON output"),
+) -> None:
+    """Show passive embedding configuration (no model load or network call)."""
+    settings = _resolve_cli_settings(env_file)
+    status = embeddings_passive_status(settings)
+
+    if as_json:
+        console.print_json(json.dumps(passive_status_to_dict(status)))
+        return
+
+    table = Table(title="Embedding Status")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("backend", status.backend)
+    table.add_row("model", status.model)
+    table.add_row("model_path", status.model_path)
+    table.add_row("model_path_exists", str(status.model_path_exists))
+    table.add_row("expected_dimensions", str(status.expected_dimensions))
+    table.add_row("batch_size", str(status.batch_size))
+    table.add_row("normalize", str(status.normalize))
+    table.add_row("device", status.device)
+    table.add_row("allow_network", str(status.allow_network))
+    table.add_row("dependency_importable", str(status.dependency_importable))
+    table.add_row("model_load_performed", str(status.model_load_performed))
+    table.add_row("network_check_performed", str(status.network_check_performed))
+    table.add_row("message", status.message)
+    console.print(table)
+
+
+@embeddings_app.command("test")
+def embeddings_test_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON output"),
+    text: list[str] = typer.Option(
+        [],
+        "--text",
+        help="Text to embed (repeatable; defaults to built-in fixture texts)",
+    ),
+    model_path: Path | None = typer.Option(
+        None,
+        "--model-path",
+        help="Override local embedding model directory",
+    ),
+    allow_network: bool = typer.Option(
+        False,
+        "--allow-network",
+        help="Permit remote model resolution when no local model path is set",
+    ),
+) -> None:
+    """Run an explicit embedding diagnostic test through the configured backend."""
+    settings = _resolve_cli_settings(env_file)
+    texts = text or None
+    try:
+        result = run_embeddings_active_test(
+            texts=texts,
+            settings=settings,
+            allow_network=allow_network or settings.embedding_allow_network,
+            model_path=model_path,
+        )
+    except EmbeddingError as exc:
+        _handle_embedding_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(active_test_to_dict(result)))
+        return
+
+    table = Table(title="Embedding Test Result")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("ok", str(result.ok))
+    table.add_row("backend", result.backend)
+    table.add_row("model", result.model)
+    table.add_row("resolved_model_path", result.resolved_model_path or "")
+    table.add_row("dimensions", str(result.dimensions))
+    table.add_row("batch_size", str(result.batch_size))
+    table.add_row("normalize", str(result.normalize))
+    table.add_row("load_ms", str(result.load_ms))
+    table.add_row("embedding_ms", str(result.embedding_ms))
+    table.add_row("texts_embedded", str(result.texts_embedded))
+    table.add_row("vectors_finite", str(result.vectors_finite))
+    table.add_row("related_similarity", f"{result.related_similarity:.4f}")
+    table.add_row("unrelated_similarity", f"{result.unrelated_similarity:.4f}")
+    table.add_row("related_ranks_higher", str(result.related_ranks_higher))
+    table.add_row("message", result.message)
+    console.print(table)
+
+
+@embeddings_app.command("evaluate")
+def embeddings_evaluate_cmd(
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Deployment env file (e.g. /etc/ark-pi/ark-rag.env)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON output"),
+    fixture: Path | None = typer.Option(
+        None,
+        "--fixture",
+        help="Optional local JSON evaluation fixture",
+    ),
+    model_path: Path | None = typer.Option(
+        None,
+        "--model-path",
+        help="Override local embedding model directory",
+    ),
+    allow_network: bool = typer.Option(
+        False,
+        "--allow-network",
+        help="Permit remote model resolution when no local model path is set",
+    ),
+) -> None:
+    """Run offline retrieval-quality evaluation without modifying indexes."""
+    settings = _resolve_cli_settings(env_file)
+    try:
+        result = run_embeddings_evaluate(
+            settings=settings,
+            fixture_path=fixture,
+            allow_network=allow_network or settings.embedding_allow_network,
+            model_path=model_path,
+        )
+    except (EmbeddingError, ValueError) as exc:
+        _handle_embedding_errors(exc)
+
+    if as_json:
+        console.print_json(json.dumps(evaluate_result_to_dict(result)))
+        return
+
+    table = Table(title="Embedding Evaluation Result")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("ok", str(result.ok))
+    table.add_row("backend", result.backend)
+    table.add_row("model", result.model)
+    table.add_row("resolved_model_path", result.resolved_model_path or "")
+    table.add_row("dimensions", str(result.dimensions))
+    table.add_row("top1_accuracy", f"{result.top1_accuracy:.4f}")
+    table.add_row("recall_at_3", f"{result.recall_at_3:.4f}")
+    table.add_row("mean_reciprocal_rank", f"{result.mean_reciprocal_rank:.4f}")
+    table.add_row("query_count", str(result.query_count))
+    table.add_row("documents_count", str(result.documents_count))
+    table.add_row("total_latency_ms", str(result.total_latency_ms))
     table.add_row("message", result.message)
     console.print(table)
 

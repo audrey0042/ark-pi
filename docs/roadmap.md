@@ -76,9 +76,13 @@ Index backend selection (`simple` default, `chroma` optional) with lazy-loaded C
 
 Choose and wire an embedding model for semantic indexing. Evaluate retrieval quality offline.
 
+**Status: superseded by Slice 53 (runtime contract) and Slice 54 (semantic corpus indexing)**
+
 ## 8. Real semantic retrieval and evaluation
 
 End-to-end semantic search, ranking evaluation, and tuning over Chroma-backed indexes.
+
+**Status: deferred until after Slice 54 semantic corpus indexing**
 
 ## 9. FastAPI RAG service
 
@@ -249,6 +253,20 @@ Offline streaming MediaWiki XML normalizer: `ark corpus prepare-wikipedia`. Conv
 Streamed, checkpointed bulk corpus ingest for JSONL and recursive `.txt` directories into named workspace indexes. CLI: `ark corpus ingest`, `ark corpus status`. Run state under `$ARK_WORKSPACE_DIR/corpus-runs/`. Simple backend only; semantic embeddings deferred.
 
 **Status: done**
+
+## 53. Local embedding runtime contract
+
+Typed optional embedding runtime (`mock` default, `sentence-transformers` optional) with passive status, active test, and offline evaluation CLI/API. Proves local model compatibility on RAG Pi hardware before semantic indexes. Does not migrate existing indexes or make Chroma the default.
+
+CLI: `ark embeddings status`, `ark embeddings test`, `ark embeddings evaluate`. See [embeddings.md](embeddings.md).
+
+**Status: done**
+
+## 54. Semantic corpus indexing
+
+Embed canonical chunks during resumable corpus ingestion. Persist embedding identity in index metadata. Build Chroma indexes incrementally with resume and duplicate protections. Keep lexical indexes for fallback and hybrid retrieval.
+
+**Status: future**
 
 ## 34. Workspace import / restore
 

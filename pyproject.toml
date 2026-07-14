@@ -28,6 +28,9 @@ dev = [
 chroma = [
     "chromadb",
 ]
+embeddings = [
+    "sentence-transformers",
+]
 
 [project.scripts]
 ark = "ark_pi.cli:main"

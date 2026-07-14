@@ -14,6 +14,11 @@ class LlmBackendOption(str, Enum):
     openai_compatible = "openai-compatible"
 
 
+class EmbeddingBackendOption(str, Enum):
+    mock = "mock"
+    sentence_transformers = "sentence-transformers"
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str
@@ -27,6 +32,22 @@ class LlmPassiveStatusResponse(BaseModel):
     timeout_seconds: float
     max_tokens: int
     temperature: float
+    network_check_performed: bool
+    message: str
+
+
+class EmbeddingsPassiveStatusResponse(BaseModel):
+    backend: str
+    model: str
+    model_path: str
+    model_path_exists: bool
+    expected_dimensions: int
+    batch_size: int
+    normalize: bool
+    device: str
+    allow_network: bool
+    dependency_importable: bool
+    model_load_performed: bool
     network_check_performed: bool
     message: str
 
@@ -165,6 +186,7 @@ class StatusResponse(BaseModel):
     paths: dict[str, str]
     config: dict[str, Any]
     llm: LlmPassiveStatusResponse
+    embeddings: EmbeddingsPassiveStatusResponse
     preflight: PreflightSummaryResponse
 
 
@@ -197,6 +219,47 @@ class LlmTestResponse(BaseModel):
     output_text: str
     latency_ms: int | None
     error: str | None
+    message: str
+
+
+class EmbeddingsTestRequest(BaseModel):
+    texts: list[str] | None = None
+    backend: EmbeddingBackendOption | None = None
+    model_path: str | None = None
+    allow_network: bool | None = None
+
+    @field_validator("texts")
+    @classmethod
+    def strip_texts(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        stripped = [item.strip() for item in value if item.strip()]
+        return stripped or None
+
+    @field_validator("model_path")
+    @classmethod
+    def strip_model_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class EmbeddingsTestResponse(BaseModel):
+    ok: bool
+    backend: str
+    model: str
+    resolved_model_path: str | None
+    dimensions: int
+    batch_size: int
+    normalize: bool
+    load_ms: int
+    embedding_ms: int
+    texts_embedded: int
+    vectors_finite: bool
+    related_similarity: float
+    unrelated_similarity: float
+    related_ranks_higher: bool
     message: str
 
 

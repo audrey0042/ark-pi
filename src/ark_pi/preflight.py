@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from ark_pi.config import ArkSettings
+from ark_pi.embeddings.diagnostics import embeddings_passive_status
 from ark_pi.llm_client.diagnostics import llm_passive_status
 from ark_pi.rag.backends import CHROMA_INSTALL_HINT
 from ark_pi.workspace import catalog as workspace_catalog
@@ -376,6 +377,78 @@ def _check_llm(settings: ArkSettings) -> PreflightCheck:
     )
 
 
+def _sentence_transformers_importable() -> bool:
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _check_embeddings(settings: ArkSettings) -> PreflightCheck:
+    status = embeddings_passive_status(settings)
+    details: dict[str, object] = {
+        "backend": status.backend,
+        "model": status.model,
+        "model_path": status.model_path,
+        "model_path_exists": status.model_path_exists,
+        "expected_dimensions": status.expected_dimensions,
+        "batch_size": status.batch_size,
+        "dependency_importable": status.dependency_importable,
+        "model_load_performed": status.model_load_performed,
+        "network_check_performed": status.network_check_performed,
+    }
+    if status.backend == "mock":
+        if status.dependency_importable:
+            return PreflightCheck(
+                id="embeddings",
+                label="Embedding configuration",
+                status="pass",
+                message=status.message,
+                details=details,
+            )
+        return PreflightCheck(
+            id="embeddings",
+            label="Embedding configuration",
+            status="warning",
+            message=status.message,
+            details=details,
+        )
+    if status.backend == "sentence-transformers":
+        if not status.dependency_importable:
+            return PreflightCheck(
+                id="embeddings",
+                label="Embedding configuration",
+                status="fail",
+                message=status.message,
+                details=details,
+            )
+        if status.model_path and not status.model_path_exists:
+            return PreflightCheck(
+                id="embeddings",
+                label="Embedding configuration",
+                status="fail",
+                message=status.message,
+                details=details,
+            )
+        return PreflightCheck(
+            id="embeddings",
+            label="Embedding configuration",
+            status="warning",
+            message=(
+                f"{status.message} Preflight does not load embedding models or run inference."
+            ),
+            details=details,
+        )
+    return PreflightCheck(
+        id="embeddings",
+        label="Embedding configuration",
+        status="fail",
+        message=f"Unsupported embedding backend: {status.backend!r}",
+        details=details,
+    )
+
+
 def _check_import_limit(settings: ArkSettings) -> PreflightCheck:
     if settings.max_import_bytes <= 0:
         return PreflightCheck(
@@ -437,6 +510,7 @@ def run_preflight(settings: ArkSettings | None = None) -> PreflightResult:
         _check_source_ingest(settings),
         _check_index_backend(settings),
         _check_llm(settings),
+        _check_embeddings(settings),
         _check_import_limit(settings),
         _check_disk_space(settings),
     ]

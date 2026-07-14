@@ -20,10 +20,11 @@ On a laptop, offline, mock LLM by default:
 - Named workspace indexes: list, delete, export, import (CLI, API, UI)
 - Mock LLM path; OpenAI-compatible client for hooking up ark-llm later
 - `ark llm status` / `ark llm test`
+- `ark embeddings status` / `ark embeddings test` / `ark embeddings evaluate` (optional; mock default)
 - `ark preflight`
 - `ark deploy *` (render, preflight, plan, bundle, verify, unpack). Review/staging only; does not install anything.
 
-Default index is `simple` (lexical). Chroma and embeddings are optional extras. API/UI details: [docs/architecture.md](docs/architecture.md).
+Default index is `simple` (lexical). Chroma and embeddings are optional extras. Embedding diagnostics use the mock backend by default; lexical retrieval is unchanged. See [docs/embeddings.md](docs/embeddings.md). API/UI details: [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart
 

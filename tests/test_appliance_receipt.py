@@ -78,6 +78,8 @@ def test_receipt_schema_fields(rag_env: Path, monkeypatch: pytest.MonkeyPatch) -
     assert payload["schema_version"] == RECEIPT_SCHEMA_VERSION
     assert payload["configuration"]["role"] == "rag"
     assert payload["configuration"]["llm_base_url"] == "http://192.168.1.134:8080"
+    assert payload["configuration"]["embedding_backend"] == "mock"
+    assert payload["configuration"]["embedding_allow_network"] is False
     assert payload["active_smoke"]["connectivity"]["status"] == "not_run"
     assert payload["active_smoke"]["ask"]["status"] == "not_run"
     assert http_calls == []
