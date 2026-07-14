@@ -61,4 +61,8 @@ def get_corpus_status(
         updated_at=checkpoint.updated_at,
         resume_command=resume_command,
         run_dir=run_dir(workspace_dir, resolved_run_id),
+        index_backend=checkpoint.index_backend,
+        embedding_fingerprint=checkpoint.embedding_fingerprint,
+        records_embedded=checkpoint.records_embedded,
+        committed_batches=checkpoint.committed_batches,
     )

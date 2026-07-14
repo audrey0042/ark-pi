@@ -79,6 +79,11 @@ class CorpusIngestOptions:
     dry_run: bool = False
     continue_on_error: bool = False
     yes: bool = False
+    embedding_backend: str | None = None
+    embedding_model_path: Path | None = None
+    allow_network: bool | None = None
+    embedding_batch_size: int | None = None
+    collection_name: str | None = None
 
 
 @dataclass
@@ -107,6 +112,12 @@ class CorpusIngestResult:
     elapsed_seconds: float
     partial: bool = False
     message: str = ""
+    index_backend: str = "simple"
+    records_embedded: int = 0
+    records_skipped: int = 0
+    committed_batches: int = 0
+    embedding_fingerprint: str | None = None
+    embedding_backend: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +132,8 @@ class CorpusDryRunResult:
     backend: str
     batch_size: int
     chunking_config: ChunkingConfig
+    embedding_fingerprint: str | None = None
+    embedding_backend: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +150,10 @@ class CorpusStatusResult:
     updated_at: str
     resume_command: str
     run_dir: Path
+    index_backend: str = "simple"
+    embedding_fingerprint: str | None = None
+    records_embedded: int = 0
+    committed_batches: int = 0
 
 
 def chunking_config_to_dict(config: ChunkingConfig) -> dict[str, int]:
@@ -144,7 +161,7 @@ def chunking_config_to_dict(config: ChunkingConfig) -> dict[str, int]:
 
 
 def ingest_result_to_dict(result: CorpusIngestResult) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "run_id": result.run_id,
         "index_slug": result.index_slug,
         "source": result.source,
@@ -160,11 +177,20 @@ def ingest_result_to_dict(result: CorpusIngestResult) -> dict[str, object]:
         "elapsed_seconds": result.elapsed_seconds,
         "partial": result.partial,
         "message": result.message,
+        "index_backend": result.index_backend,
+        "records_embedded": result.records_embedded,
+        "records_skipped": result.records_skipped,
+        "committed_batches": result.committed_batches,
     }
+    if result.embedding_fingerprint is not None:
+        payload["embedding_fingerprint"] = result.embedding_fingerprint
+    if result.embedding_backend is not None:
+        payload["embedding_backend"] = result.embedding_backend
+    return payload
 
 
 def dry_run_result_to_dict(result: CorpusDryRunResult) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "run_id": result.run_id,
         "index_slug": result.index_slug,
         "source": result.source,
@@ -176,6 +202,11 @@ def dry_run_result_to_dict(result: CorpusDryRunResult) -> dict[str, object]:
         "batch_size": result.batch_size,
         "chunking_config": result.chunking_config.to_dict(),
     }
+    if result.embedding_fingerprint is not None:
+        payload["embedding_fingerprint"] = result.embedding_fingerprint
+    if result.embedding_backend is not None:
+        payload["embedding_backend"] = result.embedding_backend
+    return payload
 
 
 def status_result_to_dict(result: CorpusStatusResult) -> dict[str, object]:
@@ -191,7 +222,12 @@ def status_result_to_dict(result: CorpusStatusResult) -> dict[str, object]:
         "updated_at": result.updated_at,
         "resume_command": result.resume_command,
         "run_dir": str(result.run_dir),
+        "index_backend": result.index_backend,
+        "records_embedded": result.records_embedded,
+        "committed_batches": result.committed_batches,
     }
     if result.progress_percent is not None:
         payload["progress_percent"] = result.progress_percent
+    if result.embedding_fingerprint is not None:
+        payload["embedding_fingerprint"] = result.embedding_fingerprint
     return payload

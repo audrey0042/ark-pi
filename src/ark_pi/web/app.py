@@ -359,6 +359,10 @@ def create_app() -> FastAPI:
             chunk_count=stats.chunk_count,
             index_dir=str(stats.index_dir),
             source_chunks=stats.source_chunks,
+            embedding_fingerprint=stats.embedding_fingerprint,
+            embedding_backend=stats.embedding_backend,
+            embedding_model_name=stats.embedding_model_name,
+            embedding_dimensions=stats.embedding_dimensions,
         )
 
     @app.post("/api/search", response_model=SearchResponse)

@@ -153,7 +153,10 @@ JSONL fingerprinting streams a full-file SHA-256 (multi-GB files can take minute
 | `--workspace-dir` | Override `ARK_WORKSPACE_DIR` |
 | `--batch-size` | Documents per batch |
 | `--chunk-size` / `--chunk-overlap` | Chunking parameters |
-| `--backend` | `simple` required; Chroma rejected for corpus ingest |
+| `--backend` | `simple` (lexical, default) or `chroma` (semantic vectors) |
+| `--embedding-backend` | Override `ARK_EMBEDDING_BACKEND` for semantic ingest (`mock`, `sentence-transformers`) |
+| `--embedding-model-path` | Local model directory (offline path; no automatic download) |
+| `--allow-network` | Permit remote model resolution when no local model path is set |
 | `--resume` | Continue from checkpoint |
 | `--run-id` | Override derived run id |
 | `--force-rebuild` | Delete run state + target index (`--yes` required) |
@@ -165,4 +168,26 @@ JSONL fingerprinting streams a full-file SHA-256 (multi-GB files can take minute
 
 Corpus ingest logic lives in `ark_pi.corpus` (service layer). The CLI is a thin adapter. No long-running HTTP endpoint is provided in this slice; future job orchestration may call the same service functions.
 
-Slice 51 corpus ingest remains **lexical-only** (`simple` backend). Semantic embedding during ingest and Chroma vector indexing are deferred to Slice 54. Use [embeddings.md](embeddings.md) to probe local model compatibility before enabling semantic indexes.
+### Lexical ingest (default)
+
+`--backend simple` (default) writes incremental lexical indexes exactly as in Slice 51. Checkpoints use schema version **1**.
+
+### Semantic ingest (optional)
+
+`--backend chroma` embeds canonical chunk text with the configured embedding runtime (`ARK_EMBEDDING_*`, overridable via CLI) and persists validated vectors to a Chroma-backed workspace index. Checkpoints use schema version **2** and record an **embedding fingerprint**. Resume validates source, chunking, backend, and embedding identity.
+
+```bash
+# Mock embedder (no torch; suitable for CI and smoke tests)
+ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma --json
+
+# Offline model path example (after copying artifacts locally)
+ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma \
+  --embedding-backend sentence-transformers \
+  --embedding-model-path /srv/ark-pi/embedding-models/all-MiniLM-L6-v2
+```
+
+**Duplicate protection:** committed document IDs in the completion ledger are skipped on resume. Chroma chunk IDs are deterministic; identical ID + identical content is skipped idempotently. Conflicting content under the same chunk ID is a typed error (use `--force-rebuild --yes` to rebuild).
+
+**Compatibility:** changing embedding backend, model, dimensions, or normalization requires a fresh index (`--force-rebuild --yes`). Lexical and semantic checkpoints are not interchangeable.
+
+**Not in this slice:** semantic `/api/search`, hybrid ranking, and `ark ask` retrieval changes. Lexical search remains the default query path. Probe models first with [embeddings.md](embeddings.md).

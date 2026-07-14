@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ark_pi.rag.backends import (
+    DEFAULT_COLLECTION_NAME,
     resolve_build_backend,
     resolve_query_backend,
     validate_backend_name,
@@ -56,6 +57,10 @@ class IndexStats:
     chunk_count: int
     index_dir: Path
     source_chunks: str | None = None
+    embedding_fingerprint: str | None = None
+    embedding_backend: str | None = None
+    embedding_model_name: str | None = None
+    embedding_dimensions: int | None = None
 
 
 def load_chunks_jsonl(chunks_path: Path) -> list[ChunkDocument]:
@@ -228,7 +233,28 @@ def append_to_index(
     *,
     backend: str,
     source_chunks: str,
+    embedder: object | None = None,
+    embedding_identity: object | None = None,
+    collection_name: str | None = None,
+    embedding_batch_size: int = 16,
 ) -> IndexStats:
+    if backend == "chroma":
+        if embedder is None or embedding_identity is None:
+            msg = "Chroma corpus append requires embedder and embedding identity"
+            raise IndexConfigurationError(msg)
+        from ark_pi.rag import semantic_index
+
+        return semantic_index.append_semantic_batch(
+            chunk_records,
+            index_dir,
+            backend=backend,
+            source_chunks=source_chunks,
+            embedder=embedder,
+            embedding_identity=embedding_identity,
+            collection_name=collection_name or DEFAULT_COLLECTION_NAME,
+            embedding_batch_size=embedding_batch_size,
+        )
+
     documents = _chunk_records_to_documents(chunk_records)
     return _dispatch_append(
         backend,
@@ -277,6 +303,24 @@ def search_index(
     return _dispatch_search(resolved_backend, index_dir, query, limit=limit)
 
 
+def _embedding_stats_from_manifest(manifest: dict[str, object]) -> dict[str, object]:
+    embedding_raw = manifest.get("embedding")
+    if not isinstance(embedding_raw, dict):
+        return {
+            "embedding_fingerprint": None,
+            "embedding_backend": None,
+            "embedding_model_name": None,
+            "embedding_dimensions": None,
+        }
+    dimensions = embedding_raw.get("dimensions")
+    return {
+        "embedding_fingerprint": embedding_raw.get("fingerprint"),
+        "embedding_backend": embedding_raw.get("backend"),
+        "embedding_model_name": embedding_raw.get("model_name"),
+        "embedding_dimensions": int(dimensions) if dimensions is not None else None,
+    }
+
+
 def index_stats(index_dir: Path, *, backend: str | None = None) -> IndexStats:
     manifest = _load_manifest(index_dir)
     manifest_backend = _backend_from_manifest(manifest)
@@ -285,10 +329,21 @@ def index_stats(index_dir: Path, *, backend: str | None = None) -> IndexStats:
         manifest_backend=manifest_backend,
     )
     source_chunks = manifest.get("source_chunks")
+    embedding_fields = _embedding_stats_from_manifest(manifest)
     return IndexStats(
         backend=resolved_backend,
         schema_version=int(manifest["schema_version"]),
         chunk_count=int(manifest["chunk_count"]),
         index_dir=index_dir,
         source_chunks=str(source_chunks) if source_chunks else None,
+        embedding_fingerprint=str(embedding_fields["embedding_fingerprint"])
+        if embedding_fields["embedding_fingerprint"]
+        else None,
+        embedding_backend=str(embedding_fields["embedding_backend"])
+        if embedding_fields["embedding_backend"]
+        else None,
+        embedding_model_name=str(embedding_fields["embedding_model_name"])
+        if embedding_fields["embedding_model_name"]
+        else None,
+        embedding_dimensions=embedding_fields["embedding_dimensions"],  # type: ignore[arg-type]
     )

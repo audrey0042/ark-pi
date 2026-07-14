@@ -266,7 +266,9 @@ CLI: `ark embeddings status`, `ark embeddings test`, `ark embeddings evaluate`. 
 
 Embed canonical chunks during resumable corpus ingestion. Persist embedding identity in index metadata. Build Chroma indexes incrementally with resume and duplicate protections. Keep lexical indexes for fallback and hybrid retrieval.
 
-**Status: future**
+CLI: `ark corpus ingest --backend chroma`, `ark corpus status`. See [corpus-ingest.md](corpus-ingest.md) and [embeddings.md](embeddings.md). Semantic query execution remains deferred (Slice 8).
+
+**Status: done**
 
 ## 34. Workspace import / restore
 
