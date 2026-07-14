@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ark_pi.rag.backends import (
     DEFAULT_COLLECTION_NAME,
@@ -48,6 +49,22 @@ class SearchResult:
     source: str
     chunk_index: int
     text: str
+
+
+SearchMode = Literal["lexical", "semantic"]
+
+
+@dataclass(frozen=True)
+class SearchExecutionResult:
+    results: list[SearchResult]
+    backend: str
+    search_mode: SearchMode
+    query: str
+    index_name: str | None = None
+    embedding_fingerprint: str | None = None
+    score_semantics: str | None = None
+    query_embedding_latency_ms: int | None = None
+    search_latency_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -169,16 +186,68 @@ def _dispatch_build(
             raise IndexConfigurationError(msg)
 
 
-def _dispatch_search(backend: str, index_dir: Path, query: str, *, limit: int) -> list[SearchResult]:
+def _lexical_search_result(
+    results: list[SearchResult],
+    *,
+    backend: str,
+    query: str,
+    index_name: str | None,
+) -> SearchExecutionResult:
+    return SearchExecutionResult(
+        results=results,
+        backend=backend,
+        search_mode="lexical",
+        query=query,
+        index_name=index_name,
+        score_semantics="lexical_term_frequency",
+    )
+
+
+def _dispatch_search(
+    backend: str,
+    index_dir: Path,
+    query: str,
+    *,
+    limit: int,
+    embedding_backend: str | None = None,
+    embedding_model_path: Path | None = None,
+    allow_network: bool | None = None,
+    index_name: str | None = None,
+    manifest: dict[str, object] | None = None,
+) -> SearchExecutionResult:
     match backend:
         case "simple":
             from ark_pi.rag import simple_index
 
-            return simple_index.search_index(index_dir, query, limit=limit)
+            results = simple_index.search_index(index_dir, query, limit=limit)
+            return _lexical_search_result(
+                results,
+                backend=backend,
+                query=query,
+                index_name=index_name,
+            )
         case "chroma":
+            resolved_manifest = manifest if manifest is not None else _load_manifest(index_dir)
+            from ark_pi.rag.semantic_index import identity_from_manifest, search_semantic
+
+            if identity_from_manifest(resolved_manifest) is not None:
+                return search_semantic(
+                    index_dir,
+                    query,
+                    limit=limit,
+                    embedding_backend=embedding_backend,
+                    embedding_model_path=embedding_model_path,
+                    allow_network=allow_network,
+                    index_name=index_name,
+                )
             from ark_pi.rag import chroma_index
 
-            return chroma_index.search_index(index_dir, query, limit=limit)
+            return chroma_index.search_legacy_index(
+                index_dir,
+                query,
+                limit=limit,
+                index_name=index_name,
+            )
         case _:
             msg = f"Unhandled index backend: {backend!r}"
             raise IndexConfigurationError(msg)
@@ -292,15 +361,34 @@ def search_index(
     *,
     backend: str | None = None,
     limit: int = 5,
-) -> list[SearchResult]:
+    embedding_backend: str | None = None,
+    embedding_model_path: Path | None = None,
+    allow_network: bool | None = None,
+    index_name: str | None = None,
+) -> SearchExecutionResult:
     validate_search_limit(limit)
+    stripped_query = query.strip()
+    if not stripped_query:
+        msg = "query must not be empty"
+        raise ValueError(msg)
     manifest = _load_manifest(index_dir)
     manifest_backend = _backend_from_manifest(manifest)
     resolved_backend = resolve_query_backend(
         cli_backend=backend,
         manifest_backend=manifest_backend,
     )
-    return _dispatch_search(resolved_backend, index_dir, query, limit=limit)
+    resolved_index_name = index_name if index_name is not None else index_dir.name
+    return _dispatch_search(
+        resolved_backend,
+        index_dir,
+        stripped_query,
+        limit=limit,
+        embedding_backend=embedding_backend,
+        embedding_model_path=embedding_model_path,
+        allow_network=allow_network,
+        index_name=resolved_index_name,
+        manifest=manifest,
+    )
 
 
 def _embedding_stats_from_manifest(manifest: dict[str, object]) -> dict[str, object]:

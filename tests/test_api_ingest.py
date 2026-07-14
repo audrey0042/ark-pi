@@ -161,7 +161,7 @@ def test_ingest_text_chroma_without_chromadb(
 
     assert response.status_code == 400
     data = response.json()
-    assert data["error"] == "index_error"
+    assert data["error"] == "index_dependency_missing"
     assert "pip install -e '.[chroma]'" in data["detail"]
 
 

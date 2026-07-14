@@ -70,7 +70,8 @@ from ark_pi.llm_client import LlmClientError, LlmRequest, create_llm_client
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT, llm_passive_status, run_llm_active_test
 from ark_pi.rag import ask as rag_ask
 from ark_pi.rag import index as rag_index
-from ark_pi.rag.index import IndexErrorBase
+from ark_pi.rag.index import IndexErrorBase, SearchExecutionResult
+from ark_pi.rag.semantic_index import SemanticSearchError
 from ark_pi.workspace import catalog as workspace_catalog
 from ark_pi.workspace import export as workspace_export
 from ark_pi.workspace import importer as workspace_importer
@@ -227,6 +228,48 @@ def _truncate_snippet(text: str, max_length: int = 120) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 3] + "..."
+
+
+def _resolve_index_name(index_dir: Path, workspace_dir: Path) -> str:
+    resolved_index_dir = index_dir.expanduser().resolve()
+    try:
+        for entry in workspace_catalog.load_catalog(workspace_dir):
+            if Path(entry.index_dir).expanduser().resolve() == resolved_index_dir:
+                return entry.slug
+    except ValueError:
+        pass
+    return index_dir.name
+
+
+def _search_execution_to_dict(execution: SearchExecutionResult) -> dict[str, object]:
+    return {
+        "index_name": execution.index_name,
+        "backend": execution.backend,
+        "query": execution.query,
+        "search_mode": execution.search_mode,
+        "result_count": len(execution.results),
+        "embedding_fingerprint": execution.embedding_fingerprint,
+        "score_semantics": execution.score_semantics,
+        "query_embedding_latency_ms": execution.query_embedding_latency_ms,
+        "search_latency_ms": execution.search_latency_ms,
+        "results": [
+            {
+                "rank": rank,
+                "score": result.score,
+                "id": result.id,
+                "title": result.title,
+                "source": result.source,
+                "chunk_index": result.chunk_index,
+                "text": result.text,
+            }
+            for rank, result in enumerate(execution.results, start=1)
+        ],
+    }
+
+
+def _handle_search_errors(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
 
 
 @index_app.command("build")
@@ -546,44 +589,87 @@ def index_search(
         "--backend",
         help="Index backend (default: read from manifest)",
     ),
+    embedding_backend: EmbeddingBackendOption | None = typer.Option(
+        None,
+        "--embedding-backend",
+        help="Embedding backend override for semantic Chroma search",
+    ),
+    embedding_model_path: Path | None = typer.Option(
+        None,
+        "--embedding-model-path",
+        help="Local embedding model directory for semantic Chroma search",
+    ),
+    allow_network: bool = typer.Option(
+        False,
+        "--allow-network",
+        help="Permit remote model resolution during semantic search",
+    ),
     limit: int = typer.Option(5, "--limit", min=1),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON output"),
 ) -> None:
     """Search a local index using the configured backend."""
+    settings = ark_config.get_settings()
     resolved_backend = backend.value if backend is not None else None
+    resolved_index_name = _resolve_index_name(
+        index_dir,
+        _resolve_workspace_dir(None, settings),
+    )
     try:
-        results = rag_index.search_index(
+        execution = rag_index.search_index(
             index_dir,
             query,
             backend=resolved_backend,
             limit=limit,
+            embedding_backend=embedding_backend.value if embedding_backend is not None else None,
+            embedding_model_path=embedding_model_path,
+            allow_network=allow_network if allow_network else None,
+            index_name=resolved_index_name,
         )
-    except IndexErrorBase as exc:
-        _handle_index_errors(exc)
+    except (IndexErrorBase, SemanticSearchError) as exc:
+        _handle_search_errors(exc)
+    except EmbeddingError as exc:
+        _handle_search_errors(exc)
     except ValueError as exc:
-        _handle_index_errors(exc)
+        _handle_search_errors(exc)
     except FileNotFoundError as exc:
-        _handle_index_errors(exc)
+        _handle_search_errors(exc)
 
-    if not results:
+    if as_json:
+        console.print_json(json.dumps(_search_execution_to_dict(execution)))
+        return
+
+    if not execution.results:
         console.print("No matches found.")
         return
 
-    table = Table(title=f"Search Results ({len(results)})")
+    title = f"Search Results ({len(execution.results)})"
+    if execution.search_mode == "semantic":
+        title = f"{title} [semantic, {execution.score_semantics}]"
+    else:
+        title = f"{title} [lexical]"
+
+    table = Table(title=title)
     table.add_column("Rank", style="bold")
     table.add_column("Score")
     table.add_column("Title")
     table.add_column("Chunk ID")
     table.add_column("Snippet")
 
-    for rank, result in enumerate(results, start=1):
+    for rank, result in enumerate(execution.results, start=1):
         table.add_row(
             str(rank),
-            f"{result.score:.2f}",
+            f"{result.score:.4f}",
             result.title,
             result.id,
             _truncate_snippet(result.text),
         )
     console.print(table)
+    if execution.search_mode == "semantic" and execution.embedding_fingerprint is not None:
+        console.print(
+            f"Embedding fingerprint: {execution.embedding_fingerprint[:16]}... "
+            f"(query embed {execution.query_embedding_latency_ms}ms, "
+            f"search {execution.search_latency_ms}ms)"
+        )
 
 
 @app.command("ask")

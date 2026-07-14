@@ -1,18 +1,24 @@
 import hashlib
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ark_pi import config as ark_config
+from ark_pi.embeddings.errors import EmbeddingError
+from ark_pi.embeddings.factory import create_embedder
 from ark_pi.embeddings.math_util import assert_vectors_finite
 from ark_pi.embeddings.mock import MOCK_DIMENSIONS
 from ark_pi.rag.index import (
     MANIFEST_FILE,
     ChunkDocument,
+    IndexDependencyError,
     IndexErrorBase,
     IndexFormatError,
     IndexStats,
+    SearchExecutionResult,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +40,22 @@ class SemanticIndexCompatibilityError(SemanticIndexError):
 
 class SemanticIndexDuplicateConflictError(SemanticIndexError):
     """A document ID already exists with different content."""
+
+
+class SemanticSearchError(SemanticIndexError):
+    """Base class for semantic search failures."""
+
+
+class SemanticIndexUnavailable(SemanticSearchError):
+    """Semantic search requires embedding metadata that the index lacks."""
+
+
+class SemanticIndexDependencyMissing(SemanticSearchError):
+    """Optional dependency required for semantic search is not installed."""
+
+
+class SemanticQueryEmbeddingFailed(SemanticSearchError):
+    """Query text could not be embedded for semantic search."""
 
 
 @dataclass(frozen=True)
@@ -264,4 +286,112 @@ def _empty_stats(index_dir: Path, backend: str, source_chunks: str) -> IndexStat
         chunk_count=0,
         index_dir=index_dir,
         source_chunks=source_chunks,
+    )
+
+
+def resolve_search_settings(
+    *,
+    embedding_backend: str | None = None,
+    embedding_model_path: Path | None = None,
+    allow_network: bool | None = None,
+) -> "ArkSettings":
+    settings = ark_config.get_settings()
+    updates: dict[str, object] = {}
+    if embedding_backend is not None:
+        updates["embedding_backend"] = embedding_backend
+    if embedding_model_path is not None:
+        updates["embedding_model_path"] = embedding_model_path
+    if allow_network is not None:
+        updates["embedding_allow_network"] = allow_network
+    if updates:
+        settings = settings.model_copy(update=updates)
+    return settings
+
+
+def _score_semantics_for_identity(identity: EmbeddingIdentity) -> str:
+    if identity.normalizes_vectors:
+        return "cosine_similarity"
+    return "negative_l2_distance"
+
+
+def search_semantic(
+    index_dir: Path,
+    query: str,
+    *,
+    limit: int,
+    embedding_backend: str | None = None,
+    embedding_model_path: Path | None = None,
+    allow_network: bool | None = None,
+    index_name: str | None = None,
+) -> SearchExecutionResult:
+    """Embed a query and search a Chroma index with precomputed vectors."""
+    manifest_path = index_dir / MANIFEST_FILE
+    if not manifest_path.is_file():
+        msg = f"Invalid index directory (missing {MANIFEST_FILE}): {index_dir}"
+        raise IndexFormatError(msg)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        msg = f"Invalid manifest in {manifest_path}"
+        raise IndexFormatError(msg)
+
+    index_identity = identity_from_manifest(manifest)
+    if index_identity is None:
+        msg = (
+            "Chroma index lacks semantic embedding metadata. "
+            "Build a semantic index with ark corpus ingest --backend chroma."
+        )
+        raise SemanticIndexUnavailable(msg)
+
+    settings = resolve_search_settings(
+        embedding_backend=embedding_backend,
+        embedding_model_path=embedding_model_path,
+        allow_network=allow_network,
+    )
+    try:
+        embedder = create_embedder(
+            settings,
+            allow_network_override=allow_network,
+            model_path_override=embedding_model_path,
+        )
+    except EmbeddingError as exc:
+        raise SemanticQueryEmbeddingFailed(str(exc)) from exc
+
+    requested_identity = identity_from_embedder(embedder, settings)
+    validate_embedding_compatibility(index_identity, requested_identity)
+
+    embed_started = time.perf_counter()
+    try:
+        query_vector = embedder.embed_query(query)
+        assert_vectors_finite([query_vector], expected_dimensions=embedder.dimensions)
+    except EmbeddingError as exc:
+        raise SemanticQueryEmbeddingFailed(str(exc)) from exc
+    except ValueError as exc:
+        raise SemanticQueryEmbeddingFailed(str(exc)) from exc
+    query_embedding_latency_ms = int((time.perf_counter() - embed_started) * 1000)
+
+    from ark_pi.rag import chroma_index
+
+    search_started = time.perf_counter()
+    try:
+        results = chroma_index.query_by_vector(
+            index_dir,
+            query_vector,
+            limit=limit,
+            normalizes_vectors=index_identity.normalizes_vectors,
+        )
+    except IndexDependencyError as exc:
+        raise SemanticIndexDependencyMissing(str(exc)) from exc
+    search_latency_ms = int((time.perf_counter() - search_started) * 1000)
+
+    fingerprint = compute_embedding_fingerprint(index_identity)
+    return SearchExecutionResult(
+        results=results,
+        backend="chroma",
+        search_mode="semantic",
+        query=query,
+        index_name=index_name,
+        embedding_fingerprint=fingerprint,
+        score_semantics=_score_semantics_for_identity(index_identity),
+        query_embedding_latency_ms=query_embedding_latency_ms,
+        search_latency_ms=search_latency_ms,
     )

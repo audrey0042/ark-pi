@@ -24,7 +24,7 @@ On a laptop, offline, mock LLM by default:
 - `ark preflight`
 - `ark deploy *` (render, preflight, plan, bundle, verify, unpack). Review/staging only; does not install anything.
 
-Default index is `simple` (lexical). Chroma semantic indexing and embeddings are optional extras. Embedding diagnostics use the mock backend by default; lexical search and `ark ask` are unchanged. See [docs/embeddings.md](docs/embeddings.md). API/UI details: [docs/architecture.md](docs/architecture.md).
+Default index is `simple` (lexical). Chroma semantic indexing, semantic search, and embeddings are optional extras. Lexical search and `ark ask` remain the default query paths. See [docs/embeddings.md](docs/embeddings.md). API/UI details: [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart
 
@@ -78,6 +78,17 @@ ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index sim
 
 # Optional: semantic Chroma index with mock embedder (no torch; pip install -e '.[chroma]' for Chroma)
 ark corpus ingest /srv/ark-pi/data/sources/simplewiki-articles.jsonl --index simplewiki-semantic --backend chroma --json
+
+# Search the semantic index (query embedder must match index fingerprint)
+ark index search --index-dir /srv/ark-pi/workspace/indexes/simplewiki-semantic/index \
+  --query "how to purify water" --json
+
+# Offline local model path (after copying artifacts to the Pi)
+export ARK_EMBEDDING_MODEL_PATH=/srv/ark-pi/embedding-models/all-MiniLM-L6-v2
+ark index search --index-dir /path/to/chroma/index --query "water purification" \
+  --embedding-backend sentence-transformers \
+  --embedding-model-path /srv/ark-pi/embedding-models/all-MiniLM-L6-v2 \
+  --json
 ```
 
 Download, preparation, and ingestion are separate stages. Dump files stay out of git. Details: [docs/wikipedia-corpus.md](docs/wikipedia-corpus.md) and [docs/corpus-ingest.md](docs/corpus-ingest.md).
@@ -273,6 +284,7 @@ More: [docs/deployment/README.md](docs/deployment/README.md).
 - Model download optional via `install.sh --download-model` (Qwen3 GGUF presets; not default)
 - Auth
 - Chroma/semantic search as default production path
+- Hybrid lexical + semantic retrieval and `ark ask` semantic retrieval (deferred)
 - End-to-end test on real Pi hardware in this repo
 - Any claim that answers are safe or medically correct
 

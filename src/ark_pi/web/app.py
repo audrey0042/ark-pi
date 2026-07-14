@@ -368,15 +368,22 @@ def create_app() -> FastAPI:
     @app.post("/api/search", response_model=SearchResponse)
     def api_search(request: SearchRequest) -> SearchResponse:
         resolved_backend = request.backend.value if request.backend is not None else None
-        results = rag_index.search_index(
+        execution = rag_index.search_index(
             Path(request.index_dir),
             request.query,
             backend=resolved_backend,
             limit=request.limit,
+            allow_network=request.allow_network,
         )
         return SearchResponse(
-            query=request.query,
-            results=search_results_to_items(results),
+            query=execution.query,
+            backend=execution.backend,
+            search_mode=execution.search_mode,
+            results=search_results_to_items(execution.results),
+            embedding_fingerprint=execution.embedding_fingerprint,
+            score_semantics=execution.score_semantics,
+            query_embedding_latency_ms=execution.query_embedding_latency_ms,
+            search_latency_ms=execution.search_latency_ms,
         )
 
     @app.post("/api/ask")

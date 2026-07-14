@@ -190,4 +190,15 @@ ark corpus ingest ./articles.jsonl --index wiki-semantic --backend chroma \
 
 **Compatibility:** changing embedding backend, model, dimensions, or normalization requires a fresh index (`--force-rebuild --yes`). Lexical and semantic checkpoints are not interchangeable.
 
-**Not in this slice:** semantic `/api/search`, hybrid ranking, and `ark ask` retrieval changes. Lexical search remains the default query path. Probe models first with [embeddings.md](embeddings.md).
+### Semantic search (Slice 55)
+
+After semantic ingest, search the Chroma index with a query embedder that **exactly matches** the index embedding fingerprint:
+
+```bash
+ark index search --index-dir /srv/ark-pi/workspace/indexes/wiki-semantic/index \
+  --query "water purification" --json
+```
+
+`POST /api/search` routes to lexical search for simple indexes and semantic search for Chroma v2 indexes. Responses include `search_mode`, `score_semantics`, and optional embedding latency fields. See [embeddings.md](embeddings.md) for score semantics and compatibility rules.
+
+**Not in this slice:** hybrid ranking and `ark ask` retrieval changes. Lexical search remains the default query path for new indexes.

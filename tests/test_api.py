@@ -75,6 +75,8 @@ def test_api_search_happy_path(client: TestClient, tmp_path: Path) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["query"] == "prompt assembly"
+    assert data["backend"] == "simple"
+    assert data["search_mode"] == "lexical"
     assert len(data["results"]) == 1
     item = data["results"][0]
     assert item["rank"] == 1
@@ -265,5 +267,5 @@ def test_api_search_chroma_without_chromadb(client: TestClient, tmp_path: Path) 
 
     assert response.status_code == 400
     data = response.json()
-    assert data["error"] == "index_error"
+    assert data["error"] == "index_dependency_missing"
     assert "pip install -e '.[chroma]'" in data["detail"]

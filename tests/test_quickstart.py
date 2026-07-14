@@ -58,7 +58,7 @@ def test_quickstart_created_index_can_be_searched(
         Path(result.index_dir),
         "Ark Pi",
         limit=3,
-    )
+    ).results
 
     assert len(results) > 0
 

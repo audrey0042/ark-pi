@@ -73,7 +73,7 @@ def test_search_returns_relevant_chunk_first(tmp_path: Path) -> None:
     _write_chunks(chunks_path, _sample_chunks())
     rag_index.build_index(chunks_path, index_dir)
 
-    results = rag_index.search_index(index_dir, "prompt assembly", limit=3)
+    results = rag_index.search_index(index_dir, "prompt assembly", limit=3).results
     assert len(results) >= 1
     assert results[0].title == "RAG Pi"
     assert "prompt assembly" in results[0].text.lower()
@@ -85,7 +85,7 @@ def test_search_with_no_overlap_returns_empty(tmp_path: Path) -> None:
     _write_chunks(chunks_path, _sample_chunks())
     rag_index.build_index(chunks_path, index_dir)
 
-    results = rag_index.search_index(index_dir, "quantum physics", limit=5)
+    results = rag_index.search_index(index_dir, "quantum physics", limit=5).results
     assert results == []
 
 
@@ -95,7 +95,7 @@ def test_search_honors_limit(tmp_path: Path) -> None:
     _write_chunks(chunks_path, _sample_chunks())
     rag_index.build_index(chunks_path, index_dir)
 
-    results = rag_index.search_index(index_dir, "pi", limit=1)
+    results = rag_index.search_index(index_dir, "pi", limit=1).results
     assert len(results) == 1
 
 
@@ -121,7 +121,7 @@ def test_build_with_force_succeeds(tmp_path: Path) -> None:
 
     stats = rag_index.build_index(chunks_path, index_dir, force=True)
     assert stats.chunk_count == 2
-    results = rag_index.search_index(index_dir, "prompt assembly", limit=1)
+    results = rag_index.search_index(index_dir, "prompt assembly", limit=1).results
     assert "Updated retrieval text" in results[0].text
 
 
@@ -131,8 +131,8 @@ def test_search_is_deterministic(tmp_path: Path) -> None:
     _write_chunks(chunks_path, _sample_chunks())
     rag_index.build_index(chunks_path, index_dir)
 
-    first = rag_index.search_index(index_dir, "prompt assembly llm", limit=5)
-    second = rag_index.search_index(index_dir, "prompt assembly llm", limit=5)
+    first = rag_index.search_index(index_dir, "prompt assembly llm", limit=5).results
+    second = rag_index.search_index(index_dir, "prompt assembly llm", limit=5).results
     assert [(result.id, result.score) for result in first] == [
         (result.id, result.score) for result in second
     ]

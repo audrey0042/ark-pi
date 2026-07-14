@@ -55,12 +55,13 @@ def run_ask(
         llm_backend if llm_backend is not None else resolved_settings.llm_backend
     )
 
-    results = rag_index.search_index(
+    execution = rag_index.search_index(
         index_dir,
         stripped_question,
         backend=backend,
         limit=limit,
     )
+    results = execution.results
 
     if not results:
         return AskResult(
