@@ -29,6 +29,8 @@ class CatalogIndexEntry:
     source_count: int
     created_at: str
     updated_at: str
+    corpus_run_id: str | None = None
+    source_fingerprint: str | None = None
 
 
 def catalog_path(workspace_dir: Path) -> Path:
@@ -46,7 +48,20 @@ def _entry_from_dict(data: dict[str, object]) -> CatalogIndexEntry:
         source_count=int(data["source_count"]),
         created_at=str(data["created_at"]),
         updated_at=str(data["updated_at"]),
+        corpus_run_id=str(data["corpus_run_id"]) if data.get("corpus_run_id") else None,
+        source_fingerprint=str(data["source_fingerprint"])
+        if data.get("source_fingerprint")
+        else None,
     )
+
+
+def _entry_to_dict(entry: CatalogIndexEntry) -> dict[str, object]:
+    payload = asdict(entry)
+    if payload.get("corpus_run_id") is None:
+        payload.pop("corpus_run_id", None)
+    if payload.get("source_fingerprint") is None:
+        payload.pop("source_fingerprint", None)
+    return payload
 
 
 def load_catalog(workspace_dir: Path) -> list[CatalogIndexEntry]:
@@ -100,7 +115,7 @@ def upsert_index(workspace_dir: Path, entry: CatalogIndexEntry) -> None:
         new_entries.append(entry)
     payload = {
         "schema_version": CATALOG_SCHEMA_VERSION,
-        "indexes": [asdict(item) for item in new_entries],
+        "indexes": [_entry_to_dict(item) for item in new_entries],
     }
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -123,7 +138,7 @@ def remove_index_from_catalog(workspace_dir: Path, slug: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": CATALOG_SCHEMA_VERSION,
-        "indexes": [asdict(item) for item in remaining],
+        "indexes": [_entry_to_dict(item) for item in remaining],
     }
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

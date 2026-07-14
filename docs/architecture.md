@@ -99,6 +99,25 @@ Source documents for local file ingest live under `source_dir` (`ARK_SOURCE_DIR`
 
 Named indexes live under `workspace_dir` (`ARK_WORKSPACE_DIR`, default `./data/workspace`). The catalog is local JSON in `catalog.json`, not a remote DB or a directory scan. The web UI is a thin client over these endpoints with a catalog-aware lifecycle: create (ingest), list, select, delete, export, and import. Delete and export operations derive paths from `workspace_dir/indexes/<slug>/` rather than trusting stored catalog paths. **Workspace export** writes a local zip archive (`catalog.json`, `export_manifest.json`, and index files) via CLI, server-side path API, or browser download (`POST /api/workspace/export/download` streams an in-memory zip). **Workspace import** restores from an Ark Pi export zip: server-side path import via CLI/`POST /api/workspace/import`, or browser upload via `POST /api/workspace/import/upload` with a raw `application/zip` request body (no multipart, no `python-multipart`). Uploaded archives are validated before any workspace writes; catalog paths are remapped to the current workspace. **Web text ingest** accepts pasted plain text or browser-read `.txt` file contents; **local file ingest** reads server-side `.txt` files already on disk. The API does not import `chromadb` at startup; Chroma loads only when a request selects that backend.
 
+## Bulk corpus ingest (CLI service boundary)
+
+Large offline corpora use the **corpus ingest service** in `ark_pi.corpus`, not synchronous FastAPI ingest endpoints. The CLI (`ark corpus ingest`, `ark corpus status`, `ark corpus prepare-wikipedia`) is a thin adapter over reusable service functions.
+
+```
+Wikimedia XML dump (operator download)
+  -> ark corpus prepare-wikipedia (source-specific normalization)
+  -> canonical JSONL + manifest + attribution
+
+Source (JSONL or .txt tree)
+  -> stream documents in batches
+  -> deterministic chunking (ark_pi.ingest.chunking)
+  -> incremental simple index append (ark_pi.rag.simple_index)
+  -> workspace catalog upsert
+  -> checkpoint + completion ledger under workspace/corpus-runs/<run-id>/
+```
+
+Run state never lives in the git checkout. **Corpus preparation** (dump normalization to JSONL), **indexing**, and **inference** remain separate concerns. Article provenance is preserved in prepared JSONL metadata; chunk records currently index title, source, and text. Semantic embeddings and Chroma bulk ingest are follow-up slices. See [corpus-ingest.md](corpus-ingest.md) and [wikipedia-corpus.md](wikipedia-corpus.md).
+
 ## Local development
 
 During scaffold and early development, work happens on a laptop with `ARK_ROLE=dev`. No Pi hardware or external services are required.

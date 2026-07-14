@@ -294,6 +294,56 @@ Confirm the web UI and API respond from another machine on your network. **Do no
 
 Stop with Ctrl+C, then proceed to systemd review (below) when ready.
 
+### 5. Load a reference corpus (RAG Pi only)
+
+Corpus **preparation** and **ingestion** run on ark-rag only; ark-llm is not required. For SimpleWiki, download the dump on a workstation (or directly on ark-rag), normalize it offline, then ingest the prepared JSONL.
+
+**Disk space and time:** full SimpleWiki dumps are large (hundreds of MB compressed, several GB prepared). Allow ample space under `/srv/ark-pi/data/sources/` and expect preparation to take hours on a Pi.
+
+```bash
+# Download (operator-controlled; example)
+mkdir -p /srv/ark-pi/data/sources/simplewiki && cd /srv/ark-pi/data/sources/simplewiki
+curl -fLO https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-pages-articles.xml.bz2
+curl -fLO https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-sha1sums.txt
+
+# Prepare: normalize XML dump to canonical JSONL (offline; no LLM Pi)
+sudo /opt/ark-pi/.venv/bin/ark corpus prepare-wikipedia \
+  simplewiki-latest-pages-articles.xml.bz2 \
+  --output /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --project simplewiki \
+  --source-url https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-pages-articles.xml.bz2 \
+  --checksum-file simplewiki-latest-sha1sums.txt
+
+# Resume preparation after interrupt
+sudo /opt/ark-pi/.venv/bin/ark corpus prepare-wikipedia \
+  simplewiki-latest-pages-articles.xml.bz2 \
+  --output /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --resume
+
+# Ingest prepared JSONL into a named workspace index
+sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
+  /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki \
+  --batch-size 100 \
+  --dry-run
+
+sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
+  /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki \
+  --batch-size 100
+
+sudo /opt/ark-pi/.venv/bin/ark corpus status --json
+
+# Resume ingest after interrupt or power loss (graceful stop)
+sudo /opt/ark-pi/.venv/bin/ark corpus ingest \
+  /srv/ark-pi/data/sources/simplewiki-articles.jsonl \
+  --index simplewiki \
+  --batch-size 100 \
+  --resume
+```
+
+Preparation sidecars (`.partial`, `.checkpoint.json`, `.manifest.json`, `.ATTRIBUTION.txt`) live next to the output JSONL. Ingest checkpoints live under `$ARK_WORKSPACE_DIR/corpus-runs/`. See [wikipedia-corpus.md](../wikipedia-corpus.md) and [corpus-ingest.md](../corpus-ingest.md).
+
 ## Manual ark-llm setup
 
 ### 1. Review generated templates

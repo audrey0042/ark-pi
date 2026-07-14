@@ -234,7 +234,21 @@ Production deployment on both Pis: static Ethernet, WiFi AP on ark-rag, systemd 
 
 ## 33. SimpleWiki ingest
 
-Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git.
+Ingest a SimpleWiki dump (or subset) as a reference corpus. Dump files stay out of git. Use `ark corpus prepare-wikipedia` (Slice 52) to normalize local pages-articles XML dumps to JSONL, then `ark corpus ingest` (Slice 51) for resumable bulk load.
+
+**Status: done** (preparation + ingest path)
+
+## 52. SimpleWiki dump normalization
+
+Offline streaming MediaWiki XML normalizer: `ark corpus prepare-wikipedia`. Converts local `.xml`/`.gz`/`.bz2` pages-articles dumps to canonical JSONL with conservative wikitext cleanup, provenance manifests, checksum verification, and resumable preparation state. Dump download remains operator-controlled. Multistream random access and semantic embeddings are later work.
+
+**Status: done**
+
+## 51. Resumable corpus ingest
+
+Streamed, checkpointed bulk corpus ingest for JSONL and recursive `.txt` directories into named workspace indexes. CLI: `ark corpus ingest`, `ark corpus status`. Run state under `$ARK_WORKSPACE_DIR/corpus-runs/`. Simple backend only; semantic embeddings deferred.
+
+**Status: done**
 
 ## 34. Workspace import / restore
 
