@@ -6,6 +6,7 @@ import pytest
 
 from ark_pi.config import ArkSettings, clear_settings_cache
 from ark_pi.preflight import (
+    _check_embeddings,
     _check_import_limit,
     _check_llm,
     _check_source_dir,
@@ -217,3 +218,46 @@ def test_mock_llm_check_passes(dev_paths: tuple[Path, Path]) -> None:
 
     check = _check_llm(get_settings())
     assert check.status == "pass"
+
+
+def test_mock_embeddings_check_warns_when_optional_dependency_missing(
+    dev_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARK_EMBEDDING_BACKEND", "mock")
+    clear_settings_cache()
+
+    with patch("ark_pi.preflight._sentence_transformers_importable", return_value=False):
+        result = run_preflight()
+
+    embeddings_check = next(c for c in result.checks if c.id == "embeddings")
+    assert embeddings_check.status == "warning"
+
+
+def test_sentence_transformers_embeddings_check_fails_without_dependency(
+    dev_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARK_EMBEDDING_BACKEND", "sentence-transformers")
+    clear_settings_cache()
+
+    with patch("ark_pi.preflight._sentence_transformers_importable", return_value=False):
+        result = run_preflight()
+
+    embeddings_check = next(c for c in result.checks if c.id == "embeddings")
+    assert embeddings_check.status == "fail"
+
+
+def test_embeddings_preflight_performs_no_model_load(
+    dev_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARK_EMBEDDING_BACKEND", "mock")
+    clear_settings_cache()
+
+    with patch("ark_pi.embeddings.factory.create_embedder") as create:
+        result = run_preflight()
+
+    create.assert_not_called()
+    embeddings_check = next(c for c in result.checks if c.id == "embeddings")
+    assert embeddings_check.details["model_load_performed"] is False

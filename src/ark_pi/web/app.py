@@ -11,6 +11,7 @@ from ark_pi import quickstart as ark_quickstart
 from ark_pi.deploy.plan import build_deployment_install_plan, plan_to_dict
 from ark_pi.deploy.preflight import run_deployment_preflight
 from ark_pi.deploy.templates import DEFAULT_OUTPUT_DIR, DeployRole
+from ark_pi.embeddings import diagnostics as embeddings_diagnostics
 from ark_pi.ingest import pipeline as ingest_pipeline
 from ark_pi.llm_client import diagnostics as llm_diagnostics
 from ark_pi.llm_client.diagnostics import DEFAULT_DIAGNOSTIC_PROMPT
@@ -26,6 +27,9 @@ from ark_pi.web.schemas import (
     DeleteIndexResponse,
     DeploymentPreflightResponse,
     DeploymentInstallPlanResponse,
+    EmbeddingsPassiveStatusResponse,
+    EmbeddingsTestRequest,
+    EmbeddingsTestResponse,
     HealthResponse,
     IndexBackendOption,
     IndexCatalogDetailResponse,
@@ -103,6 +107,60 @@ def create_app() -> FastAPI:
             output_text=result.output_text,
             latency_ms=result.latency_ms,
             error=result.error,
+            message=result.message,
+        )
+
+    @app.get("/api/embeddings/status", response_model=EmbeddingsPassiveStatusResponse)
+    def api_embeddings_status() -> EmbeddingsPassiveStatusResponse:
+        status = embeddings_diagnostics.embeddings_passive_status(
+            ark_config.get_settings()
+        )
+        return EmbeddingsPassiveStatusResponse(
+            backend=status.backend,
+            model=status.model,
+            model_path=status.model_path,
+            model_path_exists=status.model_path_exists,
+            expected_dimensions=status.expected_dimensions,
+            batch_size=status.batch_size,
+            normalize=status.normalize,
+            device=status.device,
+            allow_network=status.allow_network,
+            dependency_importable=status.dependency_importable,
+            model_load_performed=status.model_load_performed,
+            network_check_performed=status.network_check_performed,
+            message=status.message,
+        )
+
+    @app.post("/api/embeddings/test", response_model=EmbeddingsTestResponse)
+    def api_embeddings_test(request: EmbeddingsTestRequest) -> EmbeddingsTestResponse:
+        settings = ark_config.get_settings()
+        model_path = Path(request.model_path) if request.model_path else None
+        allow_network = (
+            settings.embedding_allow_network
+            if request.allow_network is None
+            else request.allow_network
+        )
+        result = embeddings_diagnostics.run_embeddings_active_test(
+            texts=request.texts,
+            settings=settings,
+            allow_network=allow_network,
+            model_path=model_path,
+        )
+        return EmbeddingsTestResponse(
+            ok=result.ok,
+            backend=result.backend,
+            model=result.model,
+            resolved_model_path=result.resolved_model_path,
+            dimensions=result.dimensions,
+            batch_size=result.batch_size,
+            normalize=result.normalize,
+            load_ms=result.load_ms,
+            embedding_ms=result.embedding_ms,
+            texts_embedded=result.texts_embedded,
+            vectors_finite=result.vectors_finite,
+            related_similarity=result.related_similarity,
+            unrelated_similarity=result.unrelated_similarity,
+            related_ranks_higher=result.related_ranks_higher,
             message=result.message,
         )
 

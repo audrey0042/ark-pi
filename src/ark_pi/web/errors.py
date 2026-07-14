@@ -1,6 +1,17 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from ark_pi.embeddings import (
+    EmbeddingBackendUnavailable,
+    EmbeddingBatchFailed,
+    EmbeddingDependencyMissing,
+    EmbeddingDimensionMismatch,
+    EmbeddingError,
+    EmbeddingInvalidVector,
+    EmbeddingModelLoadFailed,
+    EmbeddingModelMissing,
+    EmbeddingNetworkDisabled,
+)
 from ark_pi.llm_client import LlmConfigurationError, LlmResponseError, LlmTransportError
 from ark_pi.rag.index import IndexErrorBase, SearchResult
 from ark_pi.workspace.catalog import WorkspaceError, WorkspaceIndexNotFoundError
@@ -65,6 +76,69 @@ def register_exception_handlers(app: FastAPI) -> None:
         exc: LlmResponseError,
     ) -> JSONResponse:
         return _error_response(502, "llm_upstream_error", str(exc))
+
+    @app.exception_handler(EmbeddingBackendUnavailable)
+    async def handle_embedding_backend_unavailable(
+        _request: Request,
+        exc: EmbeddingBackendUnavailable,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingDependencyMissing)
+    async def handle_embedding_dependency_missing(
+        _request: Request,
+        exc: EmbeddingDependencyMissing,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingModelMissing)
+    async def handle_embedding_model_missing(
+        _request: Request,
+        exc: EmbeddingModelMissing,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingNetworkDisabled)
+    async def handle_embedding_network_disabled(
+        _request: Request,
+        exc: EmbeddingNetworkDisabled,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingDimensionMismatch)
+    async def handle_embedding_dimension_mismatch(
+        _request: Request,
+        exc: EmbeddingDimensionMismatch,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingInvalidVector)
+    async def handle_embedding_invalid_vector(
+        _request: Request,
+        exc: EmbeddingInvalidVector,
+    ) -> JSONResponse:
+        return _error_response(400, "embedding_configuration_error", str(exc))
+
+    @app.exception_handler(EmbeddingModelLoadFailed)
+    async def handle_embedding_model_load_failed(
+        _request: Request,
+        exc: EmbeddingModelLoadFailed,
+    ) -> JSONResponse:
+        return _error_response(502, "embedding_runtime_error", str(exc))
+
+    @app.exception_handler(EmbeddingBatchFailed)
+    async def handle_embedding_batch_failed(
+        _request: Request,
+        exc: EmbeddingBatchFailed,
+    ) -> JSONResponse:
+        return _error_response(502, "embedding_runtime_error", str(exc))
+
+    @app.exception_handler(EmbeddingError)
+    async def handle_embedding_error(
+        _request: Request,
+        exc: EmbeddingError,
+    ) -> JSONResponse:
+        return _error_response(502, "embedding_runtime_error", str(exc))
 
     @app.exception_handler(WorkspaceIndexNotFoundError)
     async def handle_workspace_index_not_found(

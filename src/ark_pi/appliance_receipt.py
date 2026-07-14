@@ -147,6 +147,16 @@ def _configuration_snapshot(settings: ArkSettings, env_values: dict[str, str]) -
         "llm_backend": settings.llm_backend,
         "llm_model": settings.llm_model,
         "llm_timeout_seconds": settings.llm_timeout_seconds,
+        "embedding_backend": settings.embedding_backend,
+        "embedding_model": settings.embedding_model,
+        "embedding_model_path": (
+            "" if settings.embedding_model_path is None else str(settings.embedding_model_path)
+        ),
+        "embedding_dimensions": settings.embedding_dimensions,
+        "embedding_batch_size": settings.embedding_batch_size,
+        "embedding_normalize": settings.embedding_normalize,
+        "embedding_device": settings.embedding_device,
+        "embedding_allow_network": settings.embedding_allow_network,
     }
     if settings.role in {"rag", "dev"}:
         snapshot["llm_base_url"] = redact_url_credentials(settings.llm_base_url)

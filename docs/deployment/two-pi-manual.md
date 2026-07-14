@@ -102,6 +102,21 @@ Capture an offline validation receipt after basic checks:
 sudo /opt/ark-pi/.venv/bin/ark appliance receipt --env-file /etc/ark-pi/ark-rag.env --output /tmp/ark-rag-receipt.json
 ```
 
+### Optional RAG Pi embedding runtime probe
+
+Embedding diagnostics are optional and do not involve the LLM Pi. Default backend is `mock` (no ML dependencies). To probe a real local model after copying artifacts to `/srv/ark-pi/embedding-models/`:
+
+```bash
+python3 --version
+uname -m
+sudo /opt/ark-pi/.venv/bin/ark embeddings status --env-file /etc/ark-pi/ark-rag.env --json
+cd /opt/ark-pi && /opt/ark-pi/.venv/bin/python -m pip install -e '.[embeddings]'
+sudo /opt/ark-pi/.venv/bin/ark embeddings test --env-file /etc/ark-pi/ark-rag.env --json
+sudo /opt/ark-pi/.venv/bin/ark embeddings evaluate --env-file /etc/ark-pi/ark-rag.env --json
+```
+
+See [embeddings.md](../embeddings.md) for model preparation, configuration, and expected failure modes.
+
 For a receipt that includes active smoke results (opt-in network and LLM activity):
 
 ```bash

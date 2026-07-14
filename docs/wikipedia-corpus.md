@@ -90,7 +90,7 @@ One compact JSON object per line:
 }
 ```
 
-Prepared JSONL passes Slice 51 `ark corpus ingest` unchanged.
+Prepared JSONL passes Slice 51 `ark corpus ingest` unchanged. Records are **backend-neutral**: the same JSONL can feed lexical `simple` indexes today or semantic Chroma indexes in a follow-up slice. Embedding runtime diagnostics are separate; see [embeddings.md](embeddings.md).
 
 ## Sidecar files
 
